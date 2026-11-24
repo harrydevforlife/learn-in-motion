@@ -2437,6 +2437,7 @@ function renderMenuToggles() {
 }
 menuSheet.addEventListener('close', scheduleSettle); // autoplay may have just been turned on
 
+$('#navMenuBtn').addEventListener('click', () => $('#menuBtn').click()); // landscape: the top bar is hidden
 $('#menuBtn').addEventListener('click', () => {
   renderMenuToggles();
   const learned = state.items.filter((i) => i.status === 'learned').length;

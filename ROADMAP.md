@@ -42,6 +42,7 @@ Hai việc đầu khiến app dùng được thật hằng ngày trên iPhone, v
 
 - [ ] **Proxy riêng.** App đang dựa vào dịch vụ miễn phí của bên thứ ba (r.jina.ai, rss2json.com, microlink.io), dễ bị giới hạn hoặc ngừng chạy.
   Một proxy nhỏ của riêng mình (Cloudflare Worker, gói miễn phí) sẽ ổn định hơn và không gửi dữ liệu cho bên thứ ba.
+  Proxy này cũng mở được transcript của podcast trên Substack (ví dụ Lenny's Podcast): link transcript chuyển hướng mà không cho phép CORS, còn r.jina.ai từ chối vì file không ghi rõ là chữ.
 - [ ] **Tách code.** `app.js` đã khoảng 1.900 dòng, nên tách thành vài module (feed, player, sources, discover, sheets).
 - [ ] **Phụ đề AI** cho podcast không có transcript sẵn (Huberman Lab, Hidden Brain…), dùng Whisper, Deepgram hoặc AssemblyAI.
   Cần API key và có phí (ước tính khoảng 0,2–0,4 USD mỗi giờ audio, kiểm tra lại giá trước khi làm). Key sẽ nằm trên điện thoại vì không có backend.

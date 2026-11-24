@@ -774,6 +774,7 @@ function playYouTube(media, it, auto, forcedFrom = null) {
   ytRO.observe(media);
   ytHost.hidden = false;
   placeYouTube();
+  showYouTubeControls(media, it);
   youtubePlayer().then((p) => {
     if (ytNow !== now) return;
     const from = forcedFrom != null ? { at: forcedFrom, why: 'highlight' } : startOf(it); // decided now: the highlight may have arrived while the player was loading
@@ -799,8 +800,9 @@ function playYouTube(media, it, auto, forcedFrom = null) {
       highlightFor(it).then(() => {
         if (ytNow !== now || !(it.highlight > 0) || !state.prefs.highlights) return;
         if ((p.getCurrentTime?.() || 0) > 15) return;
-        p.seekTo(it.highlight, true);
-        highlightToast(it.highlight);
+        // A seek right after loading a video can be overridden by its start, so wait until it's playing.
+        if (p.getPlayerState?.() === window.YT.PlayerState.PLAYING) { p.seekTo(it.highlight, true); highlightToast(it.highlight); }
+        else now.pendingSeek = it.highlight;
       });
     }
   });
@@ -813,7 +815,15 @@ function onYouTubeState(e) {
   if (!now) return;
   const S = window.YT.PlayerState;
   clearInterval(now.timer);
-  if (e.data === S.PLAYING) now.timer = setInterval(saveYouTube, 5000);
+  if (e.data === S.PLAYING) {
+    now.timer = setInterval(saveYouTube, 5000);
+    if (now.pendingSeek) { // the highlight arrived while the video was loading
+      if ((yt.player.getCurrentTime?.() || 0) <= 15) { yt.player.seekTo(now.pendingSeek, true); highlightToast(now.pendingSeek); }
+      now.pendingSeek = 0;
+    }
+    if (yt.player.getPlaybackRate?.() !== rate()) yt.player.setPlaybackRate?.(rate());
+  }
+  updateYouTubeStrip();
   if (e.data === S.PAUSED) saveYouTube();
   if (e.data === S.ENDED) { now.it.progress = 0; saveItem(now.it); finished(now.it); }
 }
@@ -829,29 +839,69 @@ function saveYouTube() {
   saveItem(now.it);
 }
 
-// The strip under a playing video: elapsed / total time, a seek bar with the most replayed part marked.
+// While a video plays, the strip under it gets the same controls as the podcast bar: a seek bar
+// (the most replayed part marked), elapsed / remaining time, speed, back 15 s, play/pause, forward 30 s.
+const youtubeControlsHTML = (it) => `<input type="range" class="ms-seek" min="0" max="1000" step="1" value="0" aria-label="Position in video">
+    <div class="ab-times"><span class="ab-time ms-now">0:00</span>${hlChipHTML(it)}<span class="ab-time ms-left">${it.duration ? `-${fmtTime(it.duration)}` : '--:--'}</span></div>
+    <div class="ab-row">
+      <button type="button" class="ab-rate" data-act="yt-rate" aria-label="Playback speed">${rate()}×</button>
+      <button type="button" class="ab-btn" data-act="yt-back" aria-label="Back 15 seconds">${icon('back15')}</button>
+      <button type="button" class="ab-btn ab-play paused" data-act="yt-toggle" aria-label="Play">${icon('pause')}${icon('play')}</button>
+      <button type="button" class="ab-btn" data-act="yt-fwd" aria-label="Forward 30 seconds">${icon('fwd30')}</button>
+      ${sizeBtnHTML()}
+    </div>`;
+
+function showYouTubeControls(media, it) {
+  const strip = media.parentElement.querySelector(':scope > .media-strip');
+  if (!strip) return;
+  strip.classList.add('controls');
+  strip.innerHTML = youtubeControlsHTML(it);
+}
+
 function updateYouTubeStrip() {
   const now = ytNow;
   const p = yt?.player;
-  if (!now || !p?.getCurrentTime || p.getVideoData?.().video_id !== now.it.videoId) return;
-  const strip = now.media.parentElement.querySelector(':scope > .media-strip');
-  if (!strip) return;
+  const strip = now?.media.parentElement.querySelector(':scope > .media-strip.controls');
+  if (!strip || !p?.getCurrentTime || p.getVideoData?.().video_id !== now.it.videoId) return;
   const it = now.it;
   const dur = p.getDuration?.() || it.duration || 0;
   const t = now.dragging ? now.dragTo : p.getCurrentTime() || 0;
   const seek = strip.querySelector('.ms-seek');
-  if (seek) {
-    seek.hidden = !dur;
-    if (!now.dragging) seek.value = String(dur ? Math.round((t / dur) * 1000) : 0);
-    seek.style.setProperty('--fill', `${dur ? (t / dur) * 100 : 0}%`);
-    if (dur && it.highlight > 0 && state.prefs.highlights) {
-      const end = it.highlightEnd > it.highlight ? it.highlightEnd : it.highlight + 45;
-      seek.style.setProperty('--hs', `${(it.highlight / dur) * 100}%`);
-      seek.style.setProperty('--he', `${Math.min(100, (end / dur) * 100)}%`);
-    }
+  seek.disabled = !dur;
+  if (!now.dragging) seek.value = String(dur ? Math.round((t / dur) * 1000) : 0);
+  seek.style.setProperty('--fill', `${dur ? (t / dur) * 100 : 0}%`);
+  if (dur && it.highlight > 0 && state.prefs.highlights) {
+    const end = it.highlightEnd > it.highlight ? it.highlightEnd : it.highlight + 45;
+    seek.style.setProperty('--hs', `${(it.highlight / dur) * 100}%`);
+    seek.style.setProperty('--he', `${Math.min(100, (end / dur) * 100)}%`);
   }
-  const text = strip.querySelector('.ms-text');
-  if (text) text.textContent = `${fmtTime(Math.floor(t))} / ${dur ? fmtTime(Math.round(dur)) : '--:--'}`;
+  strip.querySelector('.ms-now').textContent = fmtTime(Math.floor(t));
+  strip.querySelector('.ms-left').textContent = dur ? `-${fmtTime(Math.max(0, Math.round(dur - t)))}` : '--:--';
+  const s = p.getPlayerState?.();
+  const playing = s === window.YT?.PlayerState.PLAYING || s === window.YT?.PlayerState.BUFFERING;
+  const btn = strip.querySelector('.ab-play');
+  btn.classList.toggle('paused', !playing);
+  btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  strip.querySelector('.ab-rate').textContent = `${rate()}×`;
+}
+
+function youtubeAction(act) {
+  const p = yt?.player;
+  if (!ytNow || !p?.getCurrentTime) return;
+  const t = p.getCurrentTime() || 0;
+  if (act === 'yt-toggle') {
+    const s = p.getPlayerState?.();
+    if (s === window.YT.PlayerState.PLAYING || s === window.YT.PlayerState.BUFFERING) p.pauseVideo();
+    else p.playVideo();
+  }
+  if (act === 'yt-back') p.seekTo(Math.max(0, t - 15), true);
+  if (act === 'yt-fwd') p.seekTo(Math.min(p.getDuration?.() || Infinity, t + 30), true);
+  if (act === 'yt-rate') {
+    state.prefs.rate = RATES[(RATES.indexOf(rate()) + 1) % RATES.length];
+    persistPrefs();
+    p.setPlaybackRate?.(state.prefs.rate);
+  }
+  setTimeout(updateYouTubeStrip, 150);
 }
 
 function jumpToHighlight(card, it) {
@@ -939,9 +989,10 @@ function highlightFor(it) {
       const card = cardEl(it.id);
       const media = card?.querySelector('.media');
       if (media && !media.dataset.playing) renderStrip(card, it); // show the ★ chip
-      else if (media) { // playing: add the chip without touching the live seek bar
-        const toggle = card.querySelector('.stack > .media-strip .ms-row .size-toggle');
-        if (toggle && !toggle.parentElement.querySelector('.ms-hl')) toggle.insertAdjacentHTML('beforebegin', hlChipHTML(it));
+      else if (media) { // playing: add the chip without touching the live controls
+        const strip = card.querySelector('.stack > .media-strip');
+        const anchor = strip?.querySelector('.ms-left') || strip?.querySelector('.ms-row .size-toggle');
+        if (anchor && !strip.querySelector('.ms-hl')) anchor.insertAdjacentHTML('beforebegin', hlChipHTML(it));
       }
     }).catch(() => { /* try again another time */ }).finally(() => highlightJobs.delete(it.videoId)));
   }
@@ -1069,7 +1120,7 @@ function tickCaptions() {
   for (const box of [cc.media.querySelector('.captions'), cc.media.parentElement.querySelector('.caption-line')]) {
     if (!box) continue;
     box.textContent = i >= 0 ? cc.data.lines[i].text : '';
-    box.classList.toggle('empty', i < 0);
+    box.classList.toggle('blank', i < 0); // ('empty' is the empty-state block's class)
   }
   if (trSheet.open) highlightLine(i);
 }
@@ -1407,6 +1458,7 @@ feed.addEventListener('click', (e) => {
     case 'to-highlight': if (it) jumpToHighlight(card, it); break;
     case 'cc': if (it) toggleCaptions(el, it); break;
     case 'audio-toggle': case 'audio-back': case 'audio-fwd': case 'audio-rate': audioAction(el.dataset.act); break;
+    case 'yt-toggle': case 'yt-back': case 'yt-fwd': case 'yt-rate': youtubeAction(el.dataset.act); break;
     case 'transcript': openTranscript(); break;
     case 'learned': if (it) setLearned(it, it.status !== 'learned'); break;
     case 'note': if (it) openNote(it); break;
@@ -2431,11 +2483,21 @@ importInput.addEventListener('change', async () => {
 });
 
 /* ----------------------------------------------------------------- samples */
+// Podcast samples are episodes whose feeds publish a transcript, so their subtitles (CC) work.
 const SAMPLES = [
   { url: 'https://www.youtube.com/watch?v=5MgBikgcWnY', title: 'The first 20 hours -- how to learn anything | Josh Kaufman | TEDxCSU', author: 'TEDx Talks', topic: 'Learning' },
+  { type: 'podcast', url: 'https://darknetdiaries.com/episode/182/', audioUrl: 'https://www.podtrac.com/pts/redirect.mp3/dovetail.prxu.org/7057/c0abbff3-ae98-4e23-a389-5ee0fd824f51/darknet-diaries-ep182-blackshades.mp3', title: '182: Blackshades', author: 'Darknet Diaries', topic: 'Security', image: 'https://f.prxu.org/7057/c0abbff3-ae98-4e23-a389-5ee0fd824f51/images/2a7a8a4b-7f32-4d33-8c82-f624ac181eeb/Ep182_BlackshadesSquare.jpg', duration: 2357, publishedAt: Date.parse('2026-11-03T08:00:00Z'),
+    feedUrl: 'https://podcast.darknetdiaries.com/', transcriptUrl: 'https://f.prxu.org/7057/c0abbff3-ae98-4e23-a389-5ee0fd824f51/transcripts/673ef6c8-d8e1-4f97-8c6a-d7ac2ca2401a/darknet-diaries-ep182-blackshades.vtt', transcriptType: 'vtt',
+    description: 'What if you got infected by a friend who wanted to spy on you? How BlackShades spread to more than half a million machines, and 97 people got arrested.' },
   { url: 'https://www.youtube.com/watch?v=aircAruvnKk', title: 'But what is a neural network? | Deep learning chapter 1', author: '3Blue1Brown', topic: 'AI' },
+  { type: 'podcast', url: 'https://share.transistor.fm/s/bb4dad17', audioUrl: 'https://pscrb.fm/rss/p/dts.podtrac.com/redirect.mp3/media.transistor.fm/bb4dad17/16dab0bd.mp3', title: 'Building Human-Centered AI', author: 'Practical AI', topic: 'AI', image: 'https://img.transistorcdn.com/jIBLnMKZpEyROouteO2NIG4N8vj8lRFFsW_hQpwnmGk/rs:fill:0:0:1/w:1400/h:1400/q:60/mb:500000/aHR0cHM6Ly9pbWct/dXBsb2FkLXByb2R1/Y3Rpb24udHJhbnNp/c3Rvci5mbS8wZDg5/ZmYxZTIzNGM3MWNl/YWQ4MmE2ZDRkMTQ1/YjA5Ny5wbmc.jpg', duration: 2695, publishedAt: Date.parse('2026-11-19T10:00:00Z'),
+    feedUrl: 'https://feeds.transistor.fm/practical-ai-machine-learning-data-science-llm', transcriptUrl: 'https://share.transistor.fm/s/bb4dad17/transcription.vtt', transcriptType: 'vtt',
+    description: 'How can enterprises adopt AI and agentic systems while keeping people, business value and trust at the center? With Dr. Gautham Pallapa of Scotiabank.' },
   { url: 'https://paulgraham.com/greatwork.html', title: 'How to Do Great Work', author: 'Paul Graham', topic: 'Career', description: 'An essay on choosing what to work on, following curiosity, and the habits that compound into great work.' },
   { url: 'https://www.youtube.com/watch?v=zjkBMFhNj_g', title: '[1hr Talk] Intro to Large Language Models', author: 'Andrej Karpathy', topic: 'AI' },
+  { type: 'podcast', url: 'https://omny.fm/shows/stuff-you-should-know-1/protein-yes-but-how-much', audioUrl: 'https://podtrac.com/pts/redirect.mp3/pscrb.fm/rss/p/traffic.omny.fm/d/clips/e73c998e-6e60-432f-8610-ae210140c5b1/a91018a4-ea4f-4130-bf55-ae270180c327/a007c4ee-5dbf-419c-b37e-b500010db27d/audio.mp3?utm_source=Podcast&in_playlist=44710ecc-10bb-48d1-93c7-ae270180c33e', title: 'Protein: Yes, But How Much?', author: 'Stuff You Should Know', topic: 'Health', image: 'https://www.omnycontent.com/d/programs/e73c998e-6e60-432f-8610-ae210140c5b1/a91018a4-ea4f-4130-bf55-ae270180c327/image.jpg?t=1749759419&size=Large', duration: 2736, publishedAt: Date.parse('2026-11-24T10:00:00Z'),
+    feedUrl: 'https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/a91018a4-ea4f-4130-bf55-ae270180c327/44710ecc-10bb-48d1-93c7-ae270180c33e/podcast.rss', transcriptUrl: 'https://api.omny.fm/orgs/e73c998e-6e60-432f-8610-ae210140c5b1/clips/a007c4ee-5dbf-419c-b37e-b500010db27d/transcript?format=WebVTT&t=1794500971', transcriptType: 'vtt',
+    description: 'We need protein, that much is clear. But how much do we need, and how much is too much? What this macronutrient does, and why the answers turn out to be a little fuzzy.' },
   { url: 'https://en.wikipedia.org/wiki/Spaced_repetition', title: 'Spaced repetition', author: 'Wikipedia', topic: 'Learning', description: 'An evidence-based technique: review material at growing intervals to take advantage of the spacing effect.' },
   { url: 'https://www.youtube.com/watch?v=IlU-zDU6aQ0', title: 'Marty Lobdell - Study Less Study Smart', author: 'Pierce College District WA', topic: 'Learning' },
   { url: 'https://www.youtube.com/watch?v=fNk_zzaMoSs', title: 'Vectors | Chapter 1, Essence of linear algebra', author: '3Blue1Brown', topic: 'Math' },
@@ -2448,7 +2510,7 @@ function addSamples() {
   const now = Date.now();
   let added = 0;
   SAMPLES.forEach((s, n) => {
-    const it = normalizeItem({ ...s, id: uid(), createdAt: now - n * 60000, learnedAt: s.status === 'learned' ? now - 3600000 : null, metaPending: !s.url.includes('youtube') });
+    const it = normalizeItem({ ...s, id: uid(), createdAt: now - n * 60000, learnedAt: s.status === 'learned' ? now - 3600000 : null, metaPending: !s.url.includes('youtube') && s.type !== 'podcast' });
     if (!it || keys.has(keyOf(it))) return;
     state.items.push(it);
     added++;
@@ -2458,7 +2520,7 @@ function addSamples() {
   state.prefs.topic = '';
   persistPrefs();
   render();
-  toast(added ? `Added ${added} samples. Swipe up to browse.` : 'Samples are already in your feed');
+  toast(added ? `Added ${added} samples. The podcasts have subtitles: tap CC while one plays.` : 'Samples are already in your feed');
   retryPendingMeta();
 }
 

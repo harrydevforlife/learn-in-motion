@@ -268,7 +268,7 @@ svg { display: block; }
   padding: 8px 12px; border-radius: 12px; text-align: center; text-wrap: balance;
   font-size: 18px; line-height: 1.35; font-weight: 600; color: #fff; background: rgba(0, 0, 0, 0.66);
 }
-.media > button.captions.empty { visibility: hidden; }
+.media > button.captions.blank { visibility: hidden; }
 .media.cc img.thumb { filter: brightness(0.5); }
 .media.cc .art-fallback svg { display: none; }
 .feed:not(.compact) .card.playing .media.square.cc { width: 100%; aspect-ratio: 5 / 4; }
@@ -284,7 +284,8 @@ svg { display: block; }
 /* Podcast player bar, right under the artwork. The app's own controls: the iOS ones hide the times. */
 .audio-bar { display: flex; flex-direction: column; gap: 2px; }
 .stack > .audio-bar { margin-top: -6px; }
-.ab-times { display: flex; justify-content: space-between; margin-top: -4px; }
+.ab-times { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: -4px; min-height: 26px; }
+.media-strip.controls { gap: 2px; margin-top: -6px; } /* a playing video: same controls as the podcast bar */
 .ab-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px 52px 44px minmax(0, 1fr); align-items: center; gap: 8px; }
 .ab-row .ab-rate { justify-self: start; }
 .ab-row .size-toggle { justify-self: end; margin: 0 -8px 0 0; }
@@ -305,7 +306,7 @@ svg { display: block; }
   display: block; width: 100%; margin: -4px 0 0; padding: 10px 12px; border: 0; border-radius: 12px; cursor: pointer;
   background: var(--surface); color: var(--text); font-size: 16px; line-height: 1.4; font-weight: 600; text-align: left;
 }
-.compact .caption-line.empty { visibility: hidden; }
+.compact .caption-line.blank { visibility: hidden; }
 .compact .media > button.captions { display: none; }
 .compact .media.cc img.thumb { filter: none; }
 

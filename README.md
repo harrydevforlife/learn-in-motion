@@ -10,7 +10,7 @@ Learned items move to the **Learned** tab with their takeaways, so you can scrol
 
 - Full-screen vertical feed with snap scrolling (one item per swipe)
 - Actions sit in a **rail of icon buttons** down the right side: Got it, Note and Open (Save, Skip, Follow and Open in Discover). **⋯** at the bottom folds them away or brings them back. **Long-press a card** for its menu: edit, copy link, share, delete
-- Under every picture, a strip shows what it is and how long. While a video plays it becomes a **seek bar** with the elapsed time and the most replayed part marked; the **★ chip** jumps there
+- Under every picture, a strip shows what it is and how long. While a video plays it gets the same controls as the podcast player: a **seek bar** with the most replayed part marked, elapsed and remaining time, speed, back 15 s, **play/pause** and forward 30 s. The **★ chip** jumps to the most replayed part
 - When a card's text doesn't fit, it scrolls inside the card (a fade shows there's more). The ↙↗ button at the right end of that strip switches every card to **compact**: a small thumbnail next to the source, so the title and text get the room. It holds while playing too, so you can listen to an episode (its player bar stays full width under the thumbnail) and read
 - At the end of a video or episode, the takeaway sheet opens: write what you'll remember, then **Save & mark learned**
 - YouTube videos and Shorts play inline. Timestamps like `&t=90` are kept, a video stops when you scroll past it, and it resumes where you left off

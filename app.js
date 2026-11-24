@@ -488,7 +488,8 @@ function bodyHTML(it, dcard) {
     </div>
     <h2 class="title">${esc(displayTitle(it))}</h2>
     ${it.description ? `<p class="desc">${esc(it.description)}</p>` : ''}
-    ${it.note ? `<button type="button" class="takeaway" data-act="note"><span class="label">${icon('bulb')}Takeaway</span><p>${esc(it.note)}</p></button>` : ''}`;
+    ${it.note ? `<button type="button" class="takeaway" data-act="note"><span class="label">${icon('bulb')}Takeaway</span><p>${esc(it.note)}</p></button>` : ''}
+    ${isWatch(it) ? '' : `<a class="read-btn" href="${esc(it.url)}" target="_blank" rel="noopener">${{ spotify: 'Open in Spotify', podcast: 'Open the episode' }[it.type] || 'Read the article'}${icon('external')}</a>`}`;
 }
 
 function actionsHTML(it) {
@@ -500,8 +501,11 @@ function actionsHTML(it) {
     <a class="rail-btn" href="${esc(it.url)}" target="_blank" rel="noopener" aria-label="${open}" title="${open}">${icon(it.type === 'youtube' ? 'yt' : 'external')}</a>`;
 }
 
+// Sideways, a card the app plays (a video, an episode) is all picture and controls; any other is read.
+const isWatch = (it) => it.type === 'youtube' || (it.type === 'podcast' && !!it.audioUrl);
+
 function cardHTML(it, dcard) {
-  return `<article class="card" data-id="${esc(it.id)}" style="--hue:${hueOf(it)}">
+  return `<article class="card ${isWatch(it) ? 'watch' : 'read'}" data-id="${esc(it.id)}" data-type="${esc(it.type)}" style="--hue:${hueOf(it)}">
     <div class="card-inner">
       <div class="content"><div class="stack">
         <div class="${mediaClass(it)}">${mediaHTML(it)}</div>
@@ -749,6 +753,12 @@ function placeYouTube() {
     height: `${r.height}px`,
     transform: `translate(${r.left - f.left}px, ${r.top - f.top + feed.scrollTop}px)`,
   });
+  // A new size (the phone turned): tell the player, or iOS can leave the video offset in its old frame
+  const size = `${Math.round(r.width)}x${Math.round(r.height)}`;
+  if (r.width && size !== ytNow.size && yt?.player?.setSize) {
+    ytNow.size = size;
+    try { yt.player.setSize(Math.round(r.width), Math.round(r.height)); } catch { /* not ready yet */ }
+  }
 }
 let placeQueued = false;
 const queuePlace = () => {
@@ -2437,7 +2447,6 @@ function renderMenuToggles() {
 }
 menuSheet.addEventListener('close', scheduleSettle); // autoplay may have just been turned on
 
-$('#navMenuBtn').addEventListener('click', () => $('#menuBtn').click()); // landscape: the top bar is hidden
 $('#menuBtn').addEventListener('click', () => {
   renderMenuToggles();
   const learned = state.items.filter((i) => i.status === 'learned').length;

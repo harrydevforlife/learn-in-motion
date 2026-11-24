@@ -1,7 +1,7 @@
 // Offline support: the app shell is cached so the app opens without a connection.
 // Strategy: network first (so updates show up right away), cache as fallback.
 // Bump VERSION when you change the list of files below.
-const VERSION = 'v19';
+const VERSION = 'v20';
 const CACHE = `lim-${VERSION}`;
 const SHELL = [
   './',

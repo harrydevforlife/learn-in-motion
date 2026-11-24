@@ -582,73 +582,104 @@ svg { display: block; }
 @media (min-width: 720px) {
   .title { font-size: 27px; }
 }
-.landscape-only { display: none !important; }
+.read-btn { display: none; } /* sideways only, see below */
 
 /* ---------- Phone turned sideways ----------
-   Sideways is for watching and listening, so only what that needs stays: a slim column of tab icons
-   on the left (with the menu), the picture as big as it fits with one row of controls under it, and
-   beside it the source, the title, a few lines of text and your takeaway. Turn the phone back for the rest. */
+   No top bar, no tabs: turn the phone back for those.
+   A video or an episode the app plays ("watch" cards): the picture as big as fits, 16:9 at full height
+   when the screen allows, the three playback buttons in a column beside it, and the seek bar with the
+   times over the picture's foot (above the home indicator). Nothing else.
+   Anything else ("read" cards: articles, Spotify): the picture on the left; on the right the source with
+   Note and Got it, the title, a few lines of text and a button to read it.
+   #feed in the selectors outranks the portrait and compact rules. */
 @media (orientation: landscape) and (max-height: 520px) {
-  :root { --top-h: 8px; --nav-h: 0px; --nav-w: calc(var(--safe-l) + 60px); --col: 1100px; }
-  .landscape-only { display: flex !important; }
-  .topbar { display: none; }
-  .bottomnav {
-    top: 0; bottom: 0; right: auto; width: var(--nav-w); height: auto;
-    grid-template-columns: 1fr; grid-auto-rows: auto; align-content: center; justify-items: center; gap: 10px;
-    padding: calc(var(--safe-t) + 8px) 0 calc(var(--safe-b) + 8px) var(--safe-l);
-    box-shadow: 1px 0 0 var(--line);
-  }
-  .tab { padding: 8px; }
-  .tab-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } /* icons only, still read out */
-  .fab { margin: 2px 0; width: 42px; height: 42px; }
-  .fab svg { width: 20px; height: 20px; }
-  .card-inner, .empty { padding-left: calc(var(--nav-w) + var(--gutter)); }
-  .empty { max-width: none; }
+  :root { --top-h: 0px; --nav-h: 0px; }
+  .topbar, .bottomnav { display: none; }
   .size-toggle { display: none; }
+  .empty { max-width: none; }
+  #feed .card:is(.watch, .read) .card-inner { max-width: none; padding: 0 var(--safe-r) 0 var(--safe-l); }
+  #feed .card:is(.watch, .read) .content { margin: 0; padding: 0; -webkit-mask-image: none; mask-image: none; }
 
-  body .feed .card:not(.sources-card) .stack {
-    display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); grid-template-rows: auto 1fr;
-    align-content: start; align-items: start; column-gap: 22px; row-gap: 4px; padding: 0 0 12px;
+  /* Watch cards. --mw × --mh is the picture; --mx, --my its corner, centring it and the button column together. */
+  #feed .card.watch .stack {
+    position: relative; display: block; height: 100%; min-height: 0; padding: 0;
+    --gap: 16px; --cw: 57px; --seek-b: max(16px, calc(var(--safe-b) + 4px));
+    --aw: calc(100vw - var(--safe-l) - var(--safe-r) - var(--gap) - var(--cw));
+    --mw: min(var(--aw), calc(100dvh * 16 / 9)); --mh: calc(var(--mw) * 9 / 16);
+    --mx: calc((100% - var(--mw) - var(--gap) - var(--cw)) / 2); --my: calc((100% - var(--mh)) / 2);
   }
-  body .feed .card:not(.sources-card) .stack > .media {
-    grid-column: 1; grid-row: 1; width: 100%; height: auto; margin: 0; aspect-ratio: 16 / 9; border-radius: 14px; justify-self: center;
+  #feed .card.watch .stack:has(> .media.square:not(.cc)) { --mw: min(var(--aw), 100dvh); --mh: var(--mw); }
+  #feed .card.watch .stack:has(> .media.vertical) { --mh: 100dvh; --mw: calc(100dvh * 9 / 16); }
+  #feed .card.watch .stack > .media {
+    position: absolute; left: var(--mx); top: var(--my); width: var(--mw); height: var(--mh);
+    margin: 0; aspect-ratio: auto; border-radius: 0; align-self: auto;
   }
-  body .feed .card:not(.sources-card) .stack > .media:not(.square):not(.vertical) {
-    width: min(100%, calc((100dvh - var(--safe-b) - 112px) * 16 / 9)); margin: 0; border-radius: 14px; /* not edge to edge here */
+  #feed .card.watch :is(.body, .rail, .stack > .caption-line, .stack > .media-strip:not(.controls)) { display: none; }
+  #feed .card.watch .stack > :is(.media-strip.controls, .audio-bar) {
+    position: absolute; inset: 0; z-index: 2; display: block; margin: 0; pointer-events: none;
   }
-  body .feed .card:not(.sources-card) .stack > .media.square { width: min(100%, calc(100dvh - 110px)); aspect-ratio: 1; }
-  body .feed .card:not(.sources-card) .stack > .media.vertical { width: auto; height: calc(100dvh - 110px); aspect-ratio: 9 / 16; }
-  body .feed .card.playing:not(.sources-card) .stack > .media.square.cc { width: 100%; aspect-ratio: 16 / 9; } /* room for subtitles */
-  body .feed .card:not(.sources-card) .media .play { width: 56px; height: 56px; }
-  body .feed .card:not(.sources-card) .media .play svg { width: 24px; height: 24px; }
-  .compact .media > button.captions { display: block; }
+  #feed .card.watch .stack > :is(.media-strip.controls, .audio-bar)::before { /* keeps the seek bar readable on any picture */
+    content: ""; position: absolute; left: var(--mx); width: var(--mw); top: calc(var(--my) + var(--mh) - 96px); height: 96px;
+    background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.55)); pointer-events: none;
+  }
+  #feed .card.watch :is(.ms-seek, .ab-seek) {
+    position: absolute; left: calc(var(--mx) + 64px); width: calc(var(--mw) - 128px); top: calc(var(--my) + var(--mh) - var(--seek-b) - 26px);
+    pointer-events: auto; --text: #ffffff; --line: rgba(255, 255, 255, 0.32);
+  }
+  #feed .card.watch .ab-times {
+    position: absolute; left: calc(var(--mx) + 14px); width: calc(var(--mw) - 28px); top: calc(var(--my) + var(--mh) - var(--seek-b) - 26px);
+    height: 26px; min-height: 0; margin: 0; display: flex; justify-content: space-between; align-items: center;
+  }
+  #feed .card.watch .ab-time { color: #ffffff; }
+  #feed .card.watch :is(.ms-hl, .ab-rate, .ab-row > .size-toggle) { display: none; }
+  #feed .card.watch .ab-row {
+    position: absolute; left: calc(var(--mx) + var(--mw) + var(--gap)); width: var(--cw); top: 0; bottom: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; pointer-events: auto;
+  }
+  #feed .card.watch .ab-btn { width: 48px; height: 48px; }
+  #feed .card.watch .ab-btn svg { width: 28px; height: 28px; }
+  #feed .card.watch .ab-play { width: 52px; height: 52px; }
+  #feed .card.watch .ab-play svg { width: 24px; height: 24px; }
+  #feed .card.watch .media > button.cc-btn { inset: 12px auto auto 12px; height: 30px; min-width: 40px; padding: 0 9px; font-size: 12px; border-radius: 8px; }
+  #feed .card.watch .media > button.captions {
+    display: block; top: auto; left: 40px; right: 40px; bottom: calc(var(--seek-b) + 46px); max-height: calc(100% - 120px);
+    padding: 10px 16px; font-size: 22px;
+  }
+  /* The YouTube player is outside the card, under it; lift the playing card over it so the seek bar shows,
+     hide its poster, and let touches through to the player everywhere but the controls. */
+  #feed .card.watch.playing { z-index: 2; pointer-events: none; }
+  #feed .card.watch.playing :is(.ms-seek, .ab-seek, .ab-row, .media > button) { pointer-events: auto; }
+  #feed .card.watch.playing[data-type="youtube"] .stack > .media { visibility: hidden; }
 
-  /* Under the picture: nothing until it plays ("Article", "YouTube · 10:53" go), then one row:
-     elapsed · back 15 · play · forward 30 · remaining. Speed and the ★ chip stay in portrait;
-     the most replayed part is still marked on the seek bar. */
-  body .feed .card:not(.sources-card) .stack > .media-strip:not(.controls),
-  body .feed .card:not(.sources-card) .stack > .caption-line { display: none; }
-  body .feed .card:not(.sources-card) .stack > .media-strip.controls,
-  body .feed .card:not(.sources-card) .stack > .audio-bar {
-    grid-column: 1; grid-row: 2; margin-top: 0;
-    display: grid; grid-template-columns: minmax(0, 1fr) 44px 52px 44px minmax(0, 1fr); align-items: center; column-gap: 8px; row-gap: 0;
+  /* Read cards. --pw × --ph is the picture. */
+  #feed .card.read { --pw: calc((100vw - var(--safe-l) - var(--safe-r) - 60px) * 0.62); --ph: calc(var(--pw) * 9 / 16); }
+  #feed .card.read .stack {
+    display: grid; grid-template-columns: var(--pw) minmax(0, 1fr); grid-template-rows: var(--ph); column-gap: 28px;
+    align-content: center; align-items: stretch; min-height: 100%; padding: 0 16px;
   }
-  .stack > .media-strip.controls > .ms-seek, .stack > .audio-bar > .ab-seek { grid-column: 1 / -1; }
-  .stack > .media-strip.controls :is(.ab-times, .ab-row), .stack > .audio-bar :is(.ab-times, .ab-row) { display: contents; }
-  .stack :is(.ms-now, .ab-now) { grid-column: 1; grid-row: 2; justify-self: start; }
-  .stack :is(.ms-left, .ab-left) { grid-column: 5; grid-row: 2; justify-self: end; }
-  .stack :is(.audio-bar, .media-strip.controls) :is(.ab-rate, .ms-hl) { display: none; }
-
-  /* Beside it: source, title, three lines of text, your takeaway */
-  body .feed .card:not(.sources-card) .body { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 8px; }
-  body .feed .card:not(.sources-card) .body > * { grid-column: auto; margin-right: 60px; }
-  body .feed .card:not(.sources-card) .meta :is(.when, .chip) { display: none; }
-  body .feed .card:not(.sources-card) .desc { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 14.5px; }
-  .title { font-size: 19px; }
-  .rail-items > a.rail-btn:last-child { display: none; } /* Open: rarely wanted mid-watch */
-  .rail-items:has(> a.rail-btn:last-child) > :nth-last-child(2) { --n: 1; } /* fold from one step closer */
-  .rail-items:has(> a.rail-btn:last-child) > :nth-last-child(3) { --n: 2; }
-  .rail-items:has(> a.rail-btn:last-child) > :nth-last-child(4) { --n: 3; }
+  #feed .card.read .stack > .media {
+    grid-column: 1; grid-row: 1; width: var(--pw); height: var(--ph); margin: 0; aspect-ratio: auto; border-radius: 14px; align-self: center;
+  }
+  #feed .card.read .stack > .media.square { width: var(--ph); justify-self: center; }
+  #feed .card.read .stack > :is(.media-strip, .caption-line) { display: none; }
+  #feed .card.read .body { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
+  #feed .card.read .body > * { margin-right: 0; grid-column: auto; }
+  #feed .card.read .body > .meta { min-height: 38px; margin-right: 96px; flex-wrap: nowrap; }
+  #feed .card.read:has(.rail-items > :nth-child(4)) .body > .meta { margin-right: 142px; } /* Discover: Save, Skip, Follow */
+  #feed .card.read .meta :is(.when, .chip), #feed .card.read .takeaway { display: none; }
+  #feed .card.read .title { font-size: 19px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #feed .card.read .desc { flex: 0 1 auto; min-height: 0; font-size: 14.5px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #feed .card.read .read-btn {
+    display: flex; flex: none; align-items: center; justify-content: center; gap: 8px; height: 46px; margin-top: auto; border-radius: 999px;
+    background: var(--ink); color: var(--ink-text); font-size: 15px; font-weight: 650; text-decoration: none;
+  }
+  #feed .card.read .read-btn svg { width: 17px; height: 17px; stroke-width: 2.2; }
+  /* Note and Got it sit at the right end of the source line */
+  #feed .card.read .rail { top: calc((100% - var(--ph)) / 2); bottom: auto; right: calc(var(--safe-r) + 16px); width: auto; flex-direction: row; }
+  #feed .card.read .rail-items { flex-direction: row-reverse; gap: 8px; }
+  #feed .card.read :is(.rail-toggle, .rail-items > a.rail-btn:last-child) { display: none; }
+  #feed .card.read .rail-items > .rail-btn { width: 38px; height: 38px; opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
+  #feed .card.read .rail-btn svg { width: 18px; height: 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -717,9 +717,8 @@ addEventListener('resize', queuePlace);
 const ytRO = new ResizeObserver(queuePlace);
 
 function playYouTube(media, it, auto) {
-  const from = startOf(it);
-  debug(`youtube ${it.videoId} ${auto ? 'auto' : 'tap'} from ${Math.floor(from.at)}s ${from.why}`);
   if (!window.YT?.Player) { // API not loaded (offline or blocked): a plain embed still plays
+    const from = startOf(it);
     const params = new URLSearchParams({ autoplay: '1', playsinline: '1', rel: '0', modestbranding: '1' });
     if (from.at) params.set('start', String(Math.floor(from.at)));
     media.innerHTML = `<iframe src="https://www.youtube.com/embed/${it.videoId}?${params}" title="${esc(displayTitle(it))}"
@@ -735,6 +734,8 @@ function playYouTube(media, it, auto) {
   placeYouTube();
   youtubePlayer().then((p) => {
     if (ytNow !== now) return;
+    const from = startOf(it); // decided now: the highlight may have arrived while the player was loading
+    debug(`youtube ${it.videoId} ${auto ? 'auto' : 'tap'} from ${Math.floor(from.at)}s ${from.why}`);
     p.unMute(); // an older version could leave the player muted, and YouTube remembers that
     p.loadVideoById({ videoId: it.videoId, startSeconds: Math.floor(from.at) });
     // If it hasn't started after a moment, iOS is waiting for a tap on the player's own play button.

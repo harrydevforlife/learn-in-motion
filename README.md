@@ -12,7 +12,9 @@ Learned items move to the **Learned** tab with their takeaways, so you can scrol
 - When a card's text doesn't fit, it scrolls inside the card (a fade shows there's more). The button in the corner of the picture switches every card to **compact**: a small thumbnail next to the source, so the title and text get the room. A video you play still opens full size
 - YouTube videos and Shorts play inline. Timestamps like `&t=90` are kept, a video stops when you scroll past it, and it resumes where you left off
 - **Autoplay**: when you stop scrolling on a card, its video or episode starts by itself (Menu → Autoplay).
-  iOS only allows sound after a first tap: until then a video may start muted, and an episode waits for one tap on play
+  iOS only allows sound after a tap, once per player: tap play inside the first video, and play on the first episode (any tap in the app also unlocks episodes).
+  The feed shares one YouTube player and one audio player, so after that, the next ones start with sound by themselves.
+  To check playback on a phone, open the app with `?debug=1`: a small log of play events appears
 - **Start at highlights**: a YouTube video you haven't started begins at its "Most replayed" part, the peak of the heatmap YouTube shows over the progress bar.
   A toast offers **From start**. Videos with few views have no heatmap and start from the beginning (Menu → Start at highlights)
 - Podcasts:

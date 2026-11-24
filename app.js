@@ -567,11 +567,16 @@ function render({ keepScroll = false } = {}) {
   io.disconnect();
   fadeRO.disconnect();
   updateChrome();
-  if (state.prefs.view === 'discover') feed.innerHTML = discoverHTML();
+  // Replace the cards but keep the shared YouTube player (the last child): moving or recreating
+  // it would reload it and lose its permission to play sound.
+  let html;
+  if (state.prefs.view === 'discover') html = discoverHTML();
   else {
     const list = visibleItems();
-    feed.innerHTML = list.length ? list.map((it) => cardHTML(it)).join('') : emptyHTML();
+    html = list.length ? list.map((it) => cardHTML(it)).join('') : emptyHTML();
   }
+  [...feed.children].forEach((el) => { if (el !== ytHost) el.remove(); });
+  feed.insertAdjacentHTML('afterbegin', html);
   feed.querySelectorAll('.card').forEach((c) => io.observe(c));
   feed.querySelectorAll('.content, .stack').forEach((el) => fadeRO.observe(el));
   feed.scrollTop = keepScroll ? top : 0;
@@ -624,7 +629,7 @@ function play(card, it, { auto = false } = {}) {
   if (!media || media.dataset.playing) return;
   const title = esc(displayTitle(it));
   if (it.type === 'youtube') {
-    playYouTube(media, it, auto);
+    playYouTube(media, it, auto); // the shared player sits on top of the picture
   } else if (it.type === 'podcast' && it.audioUrl) {
     playAudio(media, it, auto);
   } else if (auto) {
@@ -650,7 +655,10 @@ function finished(it) {
   if (byId(it.id) && it.status !== 'learned') toast('Finished. Mark it as learned?', { action: 'Got it', onAction: () => setLearned(it, true) });
 }
 
-/* YouTube goes through its IFrame API: it tells us where you are (to resume later) and when a video ends. */
+/* YouTube goes through its IFrame API: it tells us where you are (to resume later) and when a video ends.
+   iOS only lets a video start with sound after a tap *inside* the player, and a player that has played
+   once keeps that permission. So the whole feed shares one player, laid over the card you're on:
+   tap play in it once, and later videos start with sound on their own. */
 let ytApi = null;
 function loadYouTubeApi() {
   if (window.YT?.Player) return Promise.resolve(window.YT);
@@ -663,81 +671,144 @@ function loadYouTubeApi() {
   });
   return ytApi;
 }
-const players = new Map(); // .media element → { player, timer, save }
-let mutedHint = false;
+// It lives inside the feed, so it scrolls along and swiping on it still moves between cards.
+const ytHost = document.createElement('div');
+ytHost.className = 'yt-host';
+ytHost.hidden = true;
+feed.append(ytHost);
+let yt = null;    // { player, ready: Promise<player> }
+let ytNow = null; // the card it's showing: { it, media, timer }
+
+function youtubePlayer() {
+  if (yt) return yt.ready;
+  const slot = document.createElement('div');
+  ytHost.append(slot);
+  yt = {};
+  yt.ready = new Promise((resolve) => {
+    yt.player = new window.YT.Player(slot, {
+      width: '100%',
+      height: '100%',
+      playerVars: { playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
+      events: { onReady: () => resolve(yt.player), onStateChange: onYouTubeState },
+    });
+  });
+  return yt.ready;
+}
+
+// Keep the player exactly over the card's picture, also when the card's text scrolls or the layout changes.
+function placeYouTube() {
+  if (!ytNow) return;
+  const r = ytNow.media.getBoundingClientRect();
+  const f = feed.getBoundingClientRect();
+  Object.assign(ytHost.style, {
+    width: `${r.width}px`,
+    height: `${r.height}px`,
+    transform: `translate(${r.left - f.left}px, ${r.top - f.top + feed.scrollTop}px)`,
+  });
+}
+let placeQueued = false;
+const queuePlace = () => {
+  if (placeQueued || !ytNow) return;
+  placeQueued = true;
+  requestAnimationFrame(() => { placeQueued = false; placeYouTube(); });
+};
+feed.addEventListener('scroll', queuePlace, { capture: true, passive: true });
+addEventListener('resize', queuePlace);
+const ytRO = new ResizeObserver(queuePlace);
 
 function playYouTube(media, it, auto) {
   const from = startOf(it);
+  debug(`youtube ${it.videoId} ${auto ? 'auto' : 'tap'} from ${Math.floor(from.at)}s ${from.why}`);
   if (!window.YT?.Player) { // API not loaded (offline or blocked): a plain embed still plays
     const params = new URLSearchParams({ autoplay: '1', playsinline: '1', rel: '0', modestbranding: '1' });
     if (from.at) params.set('start', String(Math.floor(from.at)));
-    if (auto) params.set('mute', '1');
     media.innerHTML = `<iframe src="https://www.youtube.com/embed/${it.videoId}?${params}" title="${esc(displayTitle(it))}"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
         referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
     loadYouTubeApi().catch(() => {});
     return;
   }
-  const YT = window.YT;
-  media.innerHTML = '<div></div>';
-  const entry = { timer: 0, player: null };
-  entry.save = () => {
-    const now = entry.player?.getCurrentTime?.();
-    if (!(now > 0)) return;
-    it.progress = Math.floor(now);
-    if (!it.duration) it.duration = Math.round(entry.player.getDuration?.() || 0);
-    saveItem(it);
-  };
-  entry.player = new YT.Player(media.firstElementChild, {
-    videoId: it.videoId,
-    width: '100%',
-    height: '100%',
-    playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, start: Math.floor(from.at), origin: location.origin },
-    events: {
-      onReady: (e) => {
-        if (auto) e.target.playVideo();
-        // iOS starts sound only after a tap. If the video still hasn't started, play it muted.
-        setTimeout(() => {
-          if (players.get(media) !== entry) return;
-          const s = e.target.getPlayerState?.();
-          if (s === YT.PlayerState.UNSTARTED || s === YT.PlayerState.CUED) {
-            e.target.mute();
-            e.target.playVideo();
-            if (!mutedHint) { mutedHint = true; toast('Playing muted. Tap the video for sound'); }
-          }
-        }, 2500);
-      },
-      onStateChange: (e) => {
-        clearInterval(entry.timer);
-        if (e.data === YT.PlayerState.PLAYING) entry.timer = setInterval(entry.save, 5000);
-        if (e.data === YT.PlayerState.PAUSED) entry.save();
-        if (e.data === YT.PlayerState.ENDED) { it.progress = 0; saveItem(it); finished(it); }
-      },
-    },
+  if (ytNow) stopYouTube(ytNow.media);
+  const now = ytNow = { it, media, timer: 0 };
+  ytRO.observe(media);
+  ytHost.hidden = false;
+  placeYouTube();
+  youtubePlayer().then((p) => {
+    if (ytNow !== now) return;
+    p.unMute(); // an older version could leave the player muted, and YouTube remembers that
+    p.loadVideoById({ videoId: it.videoId, startSeconds: Math.floor(from.at) });
+    // If it hasn't started after a moment, iOS is waiting for a tap on the player's own play button.
+    setTimeout(() => {
+      if (ytNow !== now) return;
+      const s = p.getPlayerState?.();
+      debug(`youtube state after 3s: ${s}`);
+      if (s !== window.YT.PlayerState.PLAYING && s !== window.YT.PlayerState.BUFFERING && !ytHint) {
+        ytHint = true;
+        toast('Tap play on the video once. After that, videos start with sound as you scroll');
+      }
+    }, 3000);
+    if (from.why === 'highlight') highlightToast(from.at);
+    else if (needsHighlight(it)) {
+      // The highlight is still being looked up: jump there when it arrives, if the video has only just begun.
+      highlightFor(it).then(() => {
+        if (ytNow !== now || !(it.highlight > 0) || !state.prefs.highlights) return;
+        if ((p.getCurrentTime?.() || 0) > 15) return;
+        p.seekTo(it.highlight, true);
+        highlightToast(it.highlight);
+      });
+    }
   });
-  players.set(media, entry);
-  if (from.why === 'highlight') highlightToast(entry, from.at);
-  else if (needsHighlight(it)) {
-    // The highlight is still being looked up: jump there when it arrives, if the video has only just begun.
-    highlightFor(it).then(() => {
-      if (players.get(media) !== entry || !(it.highlight > 0) || !state.prefs.highlights) return;
-      if ((entry.player.getCurrentTime?.() || 0) > 15) return;
-      entry.player.seekTo?.(it.highlight, true);
-      highlightToast(entry, it.highlight);
-    });
-  }
+}
+let ytHint = false;
+
+function onYouTubeState(e) {
+  const now = ytNow;
+  debug(`youtube state ${e.data}`);
+  if (!now) return;
+  const S = window.YT.PlayerState;
+  clearInterval(now.timer);
+  if (e.data === S.PLAYING) now.timer = setInterval(saveYouTube, 5000);
+  if (e.data === S.PAUSED) saveYouTube();
+  if (e.data === S.ENDED) { now.it.progress = 0; saveItem(now.it); finished(now.it); }
 }
 
-function highlightToast(entry, at) {
-  toast(`Starting at the most replayed part (${fmtTime(at)})`, { action: 'From start', onAction: () => entry.player.seekTo?.(0, true) });
+function saveYouTube() {
+  const now = ytNow;
+  const p = yt?.player;
+  if (!now || p?.getVideoData?.().video_id !== now.it.videoId) return;
+  const t = p.getCurrentTime?.();
+  if (!(t > 0)) return;
+  now.it.progress = Math.floor(t);
+  if (!now.it.duration) now.it.duration = Math.round(p.getDuration?.() || 0);
+  saveItem(now.it);
+}
+
+function highlightToast(at) {
+  toast(`Starting at the most replayed part (${fmtTime(at)})`, { action: 'From start', onAction: () => yt?.player?.seekTo?.(0, true) });
 }
 
 function stopYouTube(media) {
-  const entry = players.get(media);
-  if (!entry) return;
-  clearInterval(entry.timer);
-  try { entry.save(); entry.player.destroy?.(); } catch { /* player never got ready */ }
-  players.delete(media);
+  if (ytNow?.media !== media) return;
+  clearInterval(ytNow.timer);
+  try { saveYouTube(); yt?.player?.pauseVideo?.(); } catch { /* player not ready yet */ }
+  ytRO.unobserve(media);
+  ytHost.hidden = true;
+  ytNow = null;
+}
+
+/* Debug log, for checking playback on a phone: open the app with ?debug=1 (stays on for that tab). */
+const debugOn = (() => {
+  try {
+    if (new URLSearchParams(location.search).has('debug')) sessionStorage.setItem('lim.debug', '1');
+    return sessionStorage.getItem('lim.debug') === '1';
+  } catch { return false; }
+})();
+const debugEl = debugOn ? Object.assign(document.createElement('pre'), { className: 'debug-log' }) : null;
+if (debugEl) document.body.append(debugEl);
+function debug(msg) {
+  if (!debugEl) return;
+  const line = `${new Date().toTimeString().slice(0, 8)} ${msg}`;
+  debugEl.textContent = [line, ...debugEl.textContent.split('\n')].slice(0, 14).join('\n');
 }
 
 /* Autoplay: when scrolling stops on a card, start its video or episode. */
@@ -757,6 +828,7 @@ async function onSettle() {
   if (!it || !media || media.dataset.playing || card.dataset.autoTried) return;
   if (it.type !== 'youtube' && !(it.type === 'podcast' && it.audioUrl)) return;
   card.dataset.autoTried = '1'; // once per visit, so a video you stopped doesn't restart
+  debug(`autoplay ${it.type} ${displayTitle(it).slice(0, 30)}`);
   if (needsHighlight(it)) await withTimeout(highlightFor(it), 2500);
   if (activeCard() !== card || media.dataset.playing) return; // moved on while waiting
   play(card, it, { auto: true });
@@ -977,6 +1049,32 @@ audio.controls = true;
 audio.preload = 'auto';
 let nowPlaying = null; // { it, media, ready, saved, from }
 let audioHint = false;
+
+// Unlock the shared <audio> on the first tap anywhere in the app (playing a moment of silence),
+// so episodes can start on their own later, even before you've tapped play on one.
+const SILENCE = (() => {
+  const n = 800; // 0.1 s of 8 kHz, 8-bit mono silence
+  const b = new Uint8Array(44 + n);
+  const v = new DataView(b.buffer);
+  const str = (o, s) => [...s].forEach((c, i) => { b[o + i] = c.charCodeAt(0); });
+  str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVEfmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true);
+  v.setUint16(32, 1, true); v.setUint16(34, 8, true); str(36, 'data'); v.setUint32(40, n, true);
+  b.fill(128, 44);
+  return 'data:audio/wav;base64,' + btoa(String.fromCharCode(...b));
+})();
+let audioUnlocked = false;
+function unlockAudio() {
+  if (audioUnlocked || nowPlaying) return; // a real episode is starting from this tap anyway
+  audioUnlocked = true;
+  audio.dataset.src = '';
+  audio.src = SILENCE;
+  audio.play()
+    .then(() => { if (!audio.dataset.src) audio.pause(); debug('audio unlocked'); })
+    .catch((err) => { audioUnlocked = false; debug(`audio unlock failed: ${err?.name}`); }); // e.g. the touch was a scroll: try on the next one
+}
+document.addEventListener('touchend', unlockAudio, { capture: true, passive: true });
+document.addEventListener('click', unlockAudio, { capture: true });
 audio.addEventListener('loadedmetadata', () => {
   const np = nowPlaying;
   if (!np) return;
@@ -1014,7 +1112,8 @@ function playAudio(media, it, auto) {
     audio.currentTime = np.from;
     np.ready = true;
   }
-  audio.play().catch((err) => {
+  audio.play().then(() => { audioUnlocked = true; debug('audio playing'); }).catch((err) => {
+    debug(`audio play refused: ${err?.name}`);
     // Only a refusal to start sound needs a tap; a file that fails to load shows its own error in the player.
     if (!auto || nowPlaying !== np || err?.name !== 'NotAllowedError') return;
     stopMedia(media.closest('.card')); // show the play button again

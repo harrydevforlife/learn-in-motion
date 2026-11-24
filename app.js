@@ -47,6 +47,9 @@ const ICONS = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M20.5 13.2A8.5 8.5 0 1 1 10.8 3.5a6.6 6.6 0 0 0 9.7 9.7z"/>',
   auto: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
+  pause: '<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/>',
+  back15: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><text x="12.2" y="15.6" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none" font-family="system-ui, sans-serif">15</text>',
+  fwd30: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/><text x="11.8" y="15.6" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none" font-family="system-ui, sans-serif">30</text>',
   shrink: '<path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/>',
   expand: '<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/>',
 };
@@ -275,7 +278,7 @@ function normalizeDiscover(raw) {
 const state = {
   items: load(STORE_KEY, []).map(normalizeItem).filter(Boolean),
   sources: load(SOURCES_KEY, []).map(normalizeSource).filter(Boolean),
-  prefs: Object.assign({ view: 'queue', topic: '', shuffle: false, compact: false, captions: true, autoplay: true, highlights: true, theme: 'auto', interests: [], dInterest: '' }, load(PREFS_KEY, {})),
+  prefs: Object.assign({ view: 'queue', topic: '', shuffle: false, compact: false, captions: true, autoplay: true, highlights: true, rate: 1, theme: 'auto', interests: [], dInterest: '' }, load(PREFS_KEY, {})),
   discover: normalizeDiscover(load(DISCOVER_KEY, null)),
   dseen: new Set(load(DSEEN_KEY, []).filter((k) => typeof k === 'string')),
   seed: Math.floor(Math.random() * 1e9),
@@ -913,13 +916,13 @@ async function transcriptFor(it) {
 
 async function startCaptions(media, it, asked) {
   const btn = media.querySelector('.cc-btn');
-  const el = media.querySelector('audio');
+  const el = nowPlaying?.media === media ? audio : null;
   if (!btn || !el || btn.classList.contains('busy')) return;
   btn.classList.remove('none');
   btn.classList.add('busy');
   let data = null, failed = false;
   try { data = await transcriptFor(it); } catch { failed = true; }
-  if (media.querySelector('audio') !== el) return; // stopped meanwhile
+  if (nowPlaying?.media !== media) return; // stopped meanwhile
   btn.classList.remove('busy');
   if (!data) {
     btn.classList.add('none');
@@ -1052,13 +1055,15 @@ trList.addEventListener('click', (e) => {
   trTouched = 0;
 });
 
-// Native audio for podcast episodes: resumes where you left off, offers "Got it" at the end.
-// One <audio> element serves every episode: iOS only starts sound from a tap, but an element
-// that has played once can play again later, so autoplay moves it from card to card.
+// Podcast episodes play in one <audio> element with the app's own controls (the iOS ones hide
+// the times). It resumes where you left off and offers "Got it" at the end. One element serves
+// every episode: iOS only starts sound from a tap, but an element that has played once can
+// play again later, so autoplay can start the next episode on its own.
 const audio = document.createElement('audio');
-audio.controls = true;
 audio.preload = 'auto';
-let nowPlaying = null; // { it, media, ready, saved, from }
+let nowPlaying = null; // { it, media, bar, ready, saved, from, dragging }
+const RATES = [1, 1.25, 1.5, 2];
+const rate = () => (RATES.includes(state.prefs.rate) ? state.prefs.rate : 1);
 let audioHint = false;
 
 // Unlock the shared <audio> on the first tap anywhere in the app (playing a moment of silence),
@@ -1100,6 +1105,74 @@ audio.addEventListener('timeupdate', () => {
   if (cc?.audio === audio) tickCaptions();
 });
 audio.addEventListener('seeked', () => { if (cc?.audio === audio) tickCaptions(); });
+['timeupdate', 'durationchange', 'loadedmetadata', 'play', 'pause', 'ratechange', 'seeked'].forEach((ev) => audio.addEventListener(ev, renderAudioBar));
+
+const audioBarHTML = () => `<div class="audio-bar">
+    <input type="range" class="ab-seek" min="0" max="1000" step="1" value="0" aria-label="Position in episode">
+    <div class="ab-row">
+      <span class="ab-time ab-now">0:00</span>
+      <button type="button" class="ab-btn" data-act="audio-back" aria-label="Back 15 seconds">${icon('back15')}</button>
+      <button type="button" class="ab-btn ab-play" data-act="audio-toggle" aria-label="Pause">${icon('pause')}${icon('play')}</button>
+      <button type="button" class="ab-btn" data-act="audio-fwd" aria-label="Forward 30 seconds">${icon('fwd30')}</button>
+      <span class="ab-time ab-left">--:--</span>
+      <button type="button" class="ab-rate" data-act="audio-rate" aria-label="Playback speed">${rate()}×</button>
+    </div>
+  </div>`;
+
+// Times, seek bar and play/pause icon of the episode playing now.
+function renderAudioBar() {
+  const np = nowPlaying;
+  const bar = np?.bar;
+  if (!bar) return;
+  const dur = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : np.it.duration || 0;
+  const now = np.dragging ? np.dragTo : audio.currentTime;
+  const seek = bar.querySelector('.ab-seek');
+  seek.disabled = !dur;
+  if (!np.dragging) seek.value = dur ? String(Math.round((now / dur) * 1000)) : '0';
+  seek.style.setProperty('--fill', `${dur ? (now / dur) * 100 : 0}%`);
+  bar.querySelector('.ab-now').textContent = fmtTime(Math.floor(now));
+  bar.querySelector('.ab-left').textContent = dur ? `-${fmtTime(Math.max(0, Math.round(dur - now)))}` : '--:--';
+  const playing = !audio.paused;
+  const btn = bar.querySelector('.ab-play');
+  btn.classList.toggle('paused', !playing);
+  btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  bar.querySelector('.ab-rate').textContent = `${rate()}×`;
+}
+
+function audioAction(act) {
+  if (!nowPlaying) return;
+  if (act === 'audio-toggle') { if (audio.paused) audio.play().catch(() => {}); else audio.pause(); }
+  if (act === 'audio-back') audio.currentTime = Math.max(0, audio.currentTime - 15);
+  if (act === 'audio-fwd') audio.currentTime = Math.min(audio.duration || Infinity, audio.currentTime + 30);
+  if (act === 'audio-rate') {
+    state.prefs.rate = RATES[(RATES.indexOf(rate()) + 1) % RATES.length];
+    persistPrefs();
+    audio.playbackRate = audio.defaultPlaybackRate = state.prefs.rate;
+  }
+  renderAudioBar();
+}
+
+// Dragging the seek bar: show the time under the thumb, jump on release.
+feed.addEventListener('input', (e) => {
+  if (!e.target.classList?.contains('ab-seek') || !nowPlaying) return;
+  const dur = audio.duration || nowPlaying.it.duration || 0;
+  nowPlaying.dragging = true;
+  nowPlaying.dragTo = (e.target.value / 1000) * dur;
+  renderAudioBar();
+});
+feed.addEventListener('change', (e) => {
+  if (!e.target.classList?.contains('ab-seek') || !nowPlaying) return;
+  const dur = audio.duration || nowPlaying.it.duration || 0;
+  nowPlaying.dragging = false;
+  if (dur) audio.currentTime = (e.target.value / 1000) * dur;
+  renderAudioBar();
+});
+if ('mediaSession' in navigator) {
+  // Lock screen and headphone buttons
+  const on = (action, fn) => { try { navigator.mediaSession.setActionHandler(action, fn); } catch { /* not supported */ } };
+  on('seekbackward', () => audioAction('audio-back'));
+  on('seekforward', () => audioAction('audio-fwd'));
+}
 audio.addEventListener('ended', () => {
   const np = nowPlaying;
   if (!np) return;
@@ -1113,11 +1186,10 @@ function playAudio(media, it, auto) {
   media.innerHTML = `${artHTML(it)}
     <button type="button" class="captions" data-act="transcript" aria-label="Subtitle. Tap for the full transcript" hidden></button>
     <button type="button" class="cc-btn" data-act="cc" aria-label="Subtitles" aria-pressed="false">CC</button>`;
-  // The player bar (with its seek bar) goes under the artwork, so it stays full width on compact cards too.
-  media.insertAdjacentHTML('afterend', `<div class="audio-bar"></div>
+  // The player bar goes under the artwork, so it stays full width on compact cards too.
+  media.insertAdjacentHTML('afterend', `${audioBarHTML()}
     <button type="button" class="caption-line" data-act="transcript" aria-label="Subtitle. Tap for the full transcript" hidden></button>`);
-  media.nextElementSibling.append(audio);
-  const np = nowPlaying = { it, media, ready: false, saved: it.progress || 0, from: startOf(it).at };
+  const np = nowPlaying = { it, media, bar: media.nextElementSibling, ready: false, saved: it.progress || 0, from: startOf(it).at, dragging: false };
   if (audio.dataset.src !== it.audioUrl) {
     audio.dataset.src = it.audioUrl;
     audio.src = it.audioUrl; // seeks to `from` once its length is known
@@ -1125,6 +1197,8 @@ function playAudio(media, it, auto) {
     audio.currentTime = np.from;
     np.ready = true;
   }
+  audio.playbackRate = audio.defaultPlaybackRate = rate();
+  renderAudioBar();
   audio.play().then(() => { audioUnlocked = true; debug('audio playing'); }).catch((err) => {
     debug(`audio play refused: ${err?.name}`);
     // Only a refusal to start sound needs a tap; a file that fails to load shows its own error in the player.
@@ -1147,7 +1221,6 @@ function stopMedia(card) {
   if (nowPlaying?.media === media) {
     if (!audio.ended && audio.currentTime > 5) it.progress = Math.floor(audio.currentTime);
     audio.pause();
-    audio.remove();
     nowPlaying = null;
     saveItem(it);
   }
@@ -1225,6 +1298,7 @@ feed.addEventListener('click', (e) => {
     case 'play': if (it) play(card, it); break;
     case 'compact': toggleCompact(); break;
     case 'cc': if (it) toggleCaptions(el, it); break;
+    case 'audio-toggle': case 'audio-back': case 'audio-fwd': case 'audio-rate': audioAction(el.dataset.act); break;
     case 'transcript': openTranscript(); break;
     case 'learned': if (it) setLearned(it, it.status !== 'learned'); break;
     case 'note': if (it) openNote(it); break;

@@ -235,9 +235,29 @@ svg { display: block; }
   padding: 6px 8px; border-radius: 8px; background: rgba(0, 0, 0, 0.78); color: #9f9; font: 10px/1.35 ui-monospace, Menlo, monospace;
   white-space: pre-wrap; pointer-events: none; max-height: 30vh; overflow: hidden;
 }
-/* Podcast player bar, right under the artwork */
+/* Podcast player bar, right under the artwork. The app's own controls: the iOS ones hide the times. */
+.audio-bar { display: flex; flex-direction: column; gap: 2px; }
 .stack > .audio-bar { margin-top: -6px; }
-.audio-bar audio { width: 100%; display: block; }
+.ab-seek { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 28px; margin: 0; background: transparent; --fill: 0%; }
+.ab-seek:focus { outline: none; }
+.ab-seek::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--text) var(--fill), var(--line) var(--fill)); }
+.ab-seek::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border: 0; border-radius: 50%; background: var(--text); }
+.ab-seek::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+.ab-seek::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--text); }
+.ab-seek::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--text); }
+.ab-seek:disabled { opacity: 0.4; }
+.ab-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px 52px 44px minmax(0, 1fr) auto; align-items: center; gap: 6px; }
+.ab-time { font-size: 12.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ab-left { text-align: right; }
+.ab-btn { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--text); display: grid; place-items: center; }
+.ab-btn svg { width: 26px; height: 26px; stroke-width: 1.8; grid-area: 1 / 1; }
+.ab-btn:active { background: var(--surface); }
+.ab-play { width: 52px; height: 52px; background: var(--ink); color: var(--ink-text); }
+.ab-play:active { background: var(--ink-press); }
+.ab-play svg { width: 22px; height: 22px; }
+.ab-play svg + svg, .ab-play.paused svg:first-child { display: none; }
+.ab-play.paused svg + svg { display: block; margin-left: 3px; }
+.ab-rate { height: 30px; min-width: 44px; padding: 0 8px; border: 0; border-radius: 999px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 /* On compact cards the subtitle sits under the player instead of over the small artwork */
 .caption-line { display: none; }
 .compact .caption-line:not([hidden]) {

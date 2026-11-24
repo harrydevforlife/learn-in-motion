@@ -18,7 +18,7 @@ Learned items move to the **Learned** tab with their takeaways, so you can scrol
 - **Start at highlights**: a YouTube video you haven't started begins at its "Most replayed" part, the peak of the heatmap YouTube shows over the progress bar.
   A toast offers **From start**. Videos with few views have no heatmap and start from the beginning (Menu → Start at highlights)
 - Podcasts:
-  - Apple Podcasts and feed episodes play in a native audio player that remembers where you stopped
+  - Apple Podcasts and feed episodes play in the app's own player, under the artwork: a seek bar with elapsed and remaining time, back 15 s, forward 30 s and speed (1× to 2×). It remembers where you stopped, and the lock screen's skip buttons work too
   - Spotify episodes play in Spotify's own player
   - When an episode ends, the app offers to mark it learned
   - **Subtitles** for shows that publish a transcript in their feed (the Podcasting 2.0 `<podcast:transcript>` tag; many indie and tech shows do, most big network shows don't).

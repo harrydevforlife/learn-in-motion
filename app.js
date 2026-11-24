@@ -50,6 +50,7 @@ const ICONS = {
   pause: '<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/>',
   back15: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><text x="12.2" y="15.6" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none" font-family="system-ui, sans-serif">15</text>',
   fwd30: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/><text x="11.8" y="15.6" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none" font-family="system-ui, sans-serif">30</text>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   star: '<path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" fill="currentColor" stroke="none"/>',
   yt: '<rect x="2.5" y="5" width="19" height="14" rx="4"/><path d="M10 9.2v5.6l4.8-2.8z" fill="currentColor"/>',
   shrink: '<path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/>',
@@ -281,7 +282,7 @@ function normalizeDiscover(raw) {
 const state = {
   items: load(STORE_KEY, []).map(normalizeItem).filter(Boolean),
   sources: load(SOURCES_KEY, []).map(normalizeSource).filter(Boolean),
-  prefs: Object.assign({ view: 'queue', topic: '', shuffle: false, compact: false, captions: true, autoplay: true, highlights: true, rate: 1, railOpen: true, theme: 'auto', interests: [], dInterest: '' }, load(PREFS_KEY, {})),
+  prefs: Object.assign({ view: 'queue', topic: '', shuffle: false, compact: false, captions: true, autoplay: true, highlights: true, rate: 1, railOpen: true, actionMessages: false, theme: 'auto', interests: [], dInterest: '' }, load(PREFS_KEY, {})),
   discover: normalizeDiscover(load(DISCOVER_KEY, null)),
   dseen: new Set(load(DSEEN_KEY, []).filter((k) => typeof k === 'string')),
   seed: Math.floor(Math.random() * 1e9),
@@ -582,6 +583,7 @@ function updateChrome() {
 }
 
 const io = new IntersectionObserver((entries) => {
+  if (layoutShift) return; // the page is being resized (e.g. back from fullscreen): cards only seem to move
   for (const e of entries) {
     if (e.intersectionRatio < 0.35) { stopMedia(e.target); delete e.target.dataset.autoTried; }
     // Start the next card while it's still sliding in, so it plays as soon as it lands.
@@ -916,7 +918,7 @@ function jumpToHighlight(card, it) {
 }
 
 function highlightToast(at) {
-  toast(`Starting at the most replayed part (${fmtTime(at)})`, { action: 'From start', onAction: () => yt?.player?.seekTo?.(0, true) });
+  confirmToast(`Starting at the most replayed part (${fmtTime(at)})`, { action: 'From start', onAction: () => yt?.player?.seekTo?.(0, true) });
 }
 
 function stopYouTube(media) {
@@ -951,11 +953,40 @@ feed.addEventListener('scroll', scheduleSettle, { passive: true });
 const activeCard = () => { const el = feed.children[currentIndex()]; return el?.classList.contains('card') ? el : null; };
 
 function onSettle() {
+  if (layoutShift) return;
   const card = activeCard();
-  if (card) activate(card);
+  if (card) { currentId = card.dataset.id; activate(card); }
 }
 
+/* YouTube's fullscreen button on iPhone opens iOS's own player, often in landscape, so leaving it
+   resizes the page twice. Meanwhile the feed's position slips and cards seem to leave the screen.
+   So while the size changes, nothing is stopped or started; afterwards the feed goes back to the
+   card you were on and the player back over its picture. */
+let layoutShift = 0; // timer while the page is being resized
+let currentId = null; // the card on screen, kept up to date as you scroll
+let feedSize = '';
+function onLayoutShift() {
+  const size = `${feed.clientWidth}x${feed.clientHeight}`;
+  if (size === feedSize && !layoutShift) return; // nothing really moved
+  debug(`resize ${feedSize} → ${size}, page scrolled ${Math.round(scrollY)}, feed at ${(feed.scrollTop / Math.max(1, feed.clientHeight)).toFixed(2)}`);
+  feedSize = size;
+  clearTimeout(layoutShift);
+  layoutShift = setTimeout(() => {
+    layoutShift = 0;
+    window.scrollTo(0, 0); // iOS can leave the page itself scrolled after fullscreen
+    const card = currentId && cardEl(currentId);
+    if (card) feed.scrollTop = card.offsetTop;
+    placeYouTube();
+    debug(`resize done: back on ${card ? displayTitle(findItem(currentId) || {}).slice(0, 24) || 'card' : 'no card'}`);
+  }, 400);
+}
+addEventListener('resize', onLayoutShift);
+addEventListener('orientationchange', onLayoutShift);
+requestAnimationFrame(() => { feedSize = `${feed.clientWidth}x${feed.clientHeight}`; });
+
 function activate(card) {
+  if (layoutShift) return;
+  currentId = card.dataset.id;
   prefetchHighlights(card);
   if (!state.prefs.autoplay || state.prefs.view === 'learned' || document.hidden || document.querySelector('dialog[open]')) return;
   const it = findItem(card.dataset.id);
@@ -1011,7 +1042,7 @@ function toggleCompact() {
   persistPrefs();
   feed.classList.toggle('compact', state.prefs.compact);
   feed.querySelectorAll('.size-toggle').forEach((b) => b.setAttribute('aria-pressed', String(state.prefs.compact)));
-  toast(state.prefs.compact ? 'Small pictures, more room for text' : 'Big pictures');
+  confirmToast(state.prefs.compact ? 'Small pictures, more room for text' : 'Big pictures');
 }
 
 /* ------------------------------------------------------- podcast subtitles */
@@ -1184,7 +1215,7 @@ trList.addEventListener('click', (e) => {
     setSyncing(false);
     cc.idx = -2;
     tickCaptions();
-    toast('Subtitles synced');
+    confirmToast('Subtitles synced');
     return;
   }
   cc.audio.currentTime = Math.max(0, line.start + cc.offset);
@@ -1401,7 +1432,7 @@ function setLearned(it, learned) {
     card.querySelector('.rail-items').innerHTML = actionsHTML(it);
     setTimeout(() => removeCardEl(card), learned ? 220 : 0);
   }
-  toast(learned ? `Nice, that's ${learnedToday()} learned today` : 'Moved back to Up next', {
+  confirmToast(learned ? `Nice, that's ${learnedToday()} learned today` : 'Moved back to Up next', {
     action: 'Undo',
     onAction: () => { Object.assign(it, prev); persist(); render({ keepScroll: true }); jumpTo(it.id); },
   });
@@ -1413,7 +1444,7 @@ function deleteItem(it) {
   state.items.splice(idx, 1);
   persist();
   removeCardEl(cardEl(it.id));
-  toast('Deleted', {
+  confirmToast('Deleted', {
     action: 'Undo',
     onAction: () => { state.items.splice(idx, 0, it); persist(); render({ keepScroll: true }); jumpTo(it.id); },
   });
@@ -1547,7 +1578,7 @@ $('#shuffleBtn').addEventListener('click', () => {
   state.seed = Math.floor(Math.random() * 1e9);
   persistPrefs();
   render();
-  toast(state.prefs.shuffle ? 'Shuffled' : 'Newest first');
+  confirmToast(state.prefs.shuffle ? 'Shuffled' : 'Newest first');
 });
 
 document.addEventListener('keydown', (e) => {
@@ -1575,6 +1606,9 @@ function toast(msg, { action, onAction } = {}) {
   toastTimer = setTimeout(hideToast, action ? 5000 : 2600);
 }
 function hideToast() { toastEl.hidden = true; }
+// Confirmations of what you just did ("Saved", "Link copied", Undo…) are off unless
+// Menu → Action messages is on. Errors and the one-time sound hints always show.
+const confirmToast = (msg, opts) => { if (state.prefs.actionMessages) toast(msg, opts); };
 
 /* ----------------------------------------------------------------- sheets */
 function openSheet(d) { d.returnValue = ''; d.showModal(); }
@@ -1737,7 +1771,7 @@ function showExisting(it) {
     render();
   }
   jumpTo(it.id);
-  toast('Already saved, here it is');
+  confirmToast('Already saved, here it is');
 }
 
 /**
@@ -1755,7 +1789,7 @@ function takeSharedLink() {
   if (dup) { showExisting(dup); return; }
   const topic = str(params.get('topic'), 40).trim();
   const it = saveNew(parsed, '', topic ? matchTopic(topic) : '');
-  toast('Saved to Up next', { action: 'Add topic', onAction: () => openEdit(it) });
+  confirmToast('Saved to Up next', { action: 'Add topic', onAction: () => openEdit(it) });
 }
 
 function saveNew(parsed, title, topic) {
@@ -1767,7 +1801,7 @@ function saveNew(parsed, title, topic) {
   persistPrefs();
   render();
   jumpTo(it.id);
-  toast('Saved to Up next');
+  confirmToast('Saved to Up next');
   enrich(it);
   return it;
 }
@@ -1804,7 +1838,7 @@ async function followSource(input, topic) {
     if (state.prefs.topic && state.prefs.topic !== topic) state.prefs.topic = '';
     persistPrefs();
     render();
-    toast(`Following ${s.title}${added ? ` · ${added} new in Up next` : ''}`);
+    confirmToast(`Following ${s.title}${added ? ` · ${added} new in Up next` : ''}`);
   } catch (err) {
     setDetect('err', 'alert', err instanceof FeedError ? err.message : "Couldn't follow that. Try again in a moment.");
   } finally {
@@ -1911,10 +1945,10 @@ function showNewItems(added, summary) {
   const idle = !feed.querySelector('[data-playing]') && currentIndex() === 0 && state.prefs.view === 'queue';
   if (idle || !feed.querySelector('.card')) {
     render();
-    toast(`${added} new from your sources`);
+    confirmToast(`${added} new from your sources`);
   } else {
     updateChrome();
-    toast(`${added} new from your sources`, {
+    confirmToast(`${added} new from your sources`, {
       action: 'Show',
       onAction: () => { state.prefs.view = 'queue'; state.prefs.topic = ''; persistPrefs(); render(); },
     });
@@ -2154,7 +2188,7 @@ function afterDiscoverBuilt(count, append) {
   if (!count) { render({ keepScroll: true }); toast(navigator.onLine ? "Couldn't find anything new right now" : "You're offline"); return; }
   const idle = !feed.querySelector('[data-playing]') && (currentIndex() === 0 || !feed.querySelector('.card:not(.end-card)'));
   if (append || idle) render({ keepScroll: append });
-  else toast('New suggestions are ready', { action: 'Show', onAction: () => render() });
+  else confirmToast('New suggestions are ready', { action: 'Show', onAction: () => render() });
 }
 
 function setDiscoverBusy(on) {
@@ -2195,7 +2229,7 @@ function discoverSave(cardNode) {
   if (!dup) { state.items.push(it); persist(); }
   const idx = removeSuggestion(c, cardNode);
   updateChrome();
-  toast(dup ? 'Already in your feed' : 'Saved to Up next', dup ? {} : {
+  confirmToast(dup ? 'Already in your feed' : 'Saved to Up next', dup ? {} : {
     action: 'Undo',
     onAction: () => { state.items = state.items.filter((i) => i !== it); persist(); restoreSuggestion(c, idx); },
   });
@@ -2205,7 +2239,7 @@ function discoverSkip(cardNode) {
   const c = dcardById(cardNode.dataset.id);
   if (!c) return;
   const idx = removeSuggestion(c, cardNode);
-  toast(c.type === 'sources' ? 'Hidden' : "Skipped. You won't see it again", { action: 'Undo', onAction: () => restoreSuggestion(c, idx) });
+  confirmToast(c.type === 'sources' ? 'Hidden' : "Skipped. You won't see it again", { action: 'Undo', onAction: () => restoreSuggestion(c, idx) });
 }
 
 async function followSuggestion(info, interest, btn) {
@@ -2234,7 +2268,7 @@ async function followSuggestion(info, interest, btn) {
     if (!onRail) label.textContent = 'Following';
     btn.classList.add('following');
     if (btn.classList.contains('primary')) btn.classList.replace('primary', 'ghost');
-    toast(`Following ${res.s.title}${res.added ? ` · ${res.added} new in Up next` : ''}`);
+    confirmToast(`Following ${res.s.title}${res.added ? ` · ${res.added} new in Up next` : ''}`);
   } catch (err) {
     btn.disabled = false;
     btn.classList.remove('busy');
@@ -2332,7 +2366,7 @@ noteForm.addEventListener('submit', (e) => {
     card.querySelector('.rail-items').innerHTML = actionsHTML(it);
   }
   if (e.submitter?.value === 'learned' && it.status !== 'learned') setLearned(it, true);
-  else toast(it.note ? 'Takeaway saved' : 'Note cleared');
+  else confirmToast(it.note ? 'Takeaway saved' : 'Note cleared');
 });
 
 /* ---------------------------------------------------------- per-item menu */
@@ -2359,7 +2393,7 @@ itemSheet.addEventListener('click', async (e) => {
   if (act === 'edit') openEdit(it);
   else if (act === 'delete') deleteItem(it);
   else if (act === 'copy') {
-    try { await navigator.clipboard.writeText(it.url); toast('Link copied'); }
+    try { await navigator.clipboard.writeText(it.url); confirmToast('Link copied'); }
     catch { toast("Couldn't copy on this connection"); }
   }
 });
@@ -2399,6 +2433,7 @@ const importInput = $('#importInput');
 function renderMenuToggles() {
   $('#autoplayValue').textContent = state.prefs.autoplay ? 'On' : 'Off';
   $('#highlightsValue').textContent = state.prefs.highlights ? 'On' : 'Off';
+  $('#actionMessagesValue').textContent = state.prefs.actionMessages ? 'On' : 'Off';
 }
 menuSheet.addEventListener('close', scheduleSettle); // autoplay may have just been turned on
 
@@ -2416,7 +2451,7 @@ menuSheet.addEventListener('click', (e) => {
   if (!b) return;
   const act = b.dataset.menuAct;
   if (act === 'theme') { cycleTheme(); return; } // settings stay open to show the new value
-  if (act === 'autoplay' || act === 'highlights') {
+  if (act === 'autoplay' || act === 'highlights' || act === 'actionMessages') {
     state.prefs[act] = !state.prefs[act];
     persistPrefs();
     renderMenuToggles();
@@ -2445,7 +2480,7 @@ function exportData() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  toast('Backup downloaded');
+  confirmToast('Backup downloaded');
 }
 
 importInput.addEventListener('change', async () => {
@@ -2520,7 +2555,7 @@ function addSamples() {
   state.prefs.topic = '';
   persistPrefs();
   render();
-  toast(added ? `Added ${added} samples. The podcasts have subtitles: tap CC while one plays.` : 'Samples are already in your feed');
+  confirmToast(added ? `Added ${added} samples. The podcasts have subtitles: tap CC while one plays.` : 'Samples are already in your feed');
   retryPendingMeta();
 }
 

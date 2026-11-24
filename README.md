@@ -40,7 +40,8 @@ Learned items move to the **Learned** tab with their takeaways, so you can scrol
   - Suggestions refresh after 6 hours. **Load more** at the end of the feed fetches another batch
 - Titles and previews are filled in automatically
 - Topics with filter chips, plus a shuffle mode
-- Takeaway notes, a Learned tab, and undo for "Got it" and delete
+- Takeaway notes and a Learned tab
+- Quiet by default: confirmations like "Saved" or "Link copied" (and their Undo) only show when **Menu → Action messages** is on. Errors always show
 - Light and dark mode: **Menu → Appearance** cycles **Light → Dark → Auto** (Auto follows the phone)
 - Export and import a JSON backup (opens the iOS share sheet)
 - Works offline once installed: the app shell is cached by a service worker

@@ -1150,13 +1150,7 @@ addForm.addEventListener('submit', (e) => {
   if (dup) {
     e.preventDefault();
     closeSheet(addSheet);
-    if (!inView(dup) || (state.prefs.topic && dup.topic !== state.prefs.topic)) {
-      state.prefs.view = dup.status === 'learned' ? 'learned' : 'queue';
-      state.prefs.topic = '';
-      render();
-    }
-    jumpTo(dup.id);
-    toast('Already saved, here it is');
+    showExisting(dup);
     return;
   }
   const title = F.title.value.trim();
@@ -1164,6 +1158,35 @@ addForm.addEventListener('submit', (e) => {
   else saveNew(parsed, title, topic);
   // method="dialog" closes the sheet after this handler
 });
+
+function showExisting(it) {
+  if (!inView(it) || state.prefs.view === 'discover' || (state.prefs.topic && it.topic !== state.prefs.topic)) {
+    state.prefs.view = it.status === 'learned' ? 'learned' : 'queue';
+    state.prefs.topic = '';
+    persistPrefs();
+    render();
+  }
+  jumpTo(it.id);
+  toast('Already saved, here it is');
+}
+
+/**
+ * Links shared from other apps. An iOS Shortcut in the Share sheet (or a bookmarklet) opens
+ * the app as …/?add=<link> and the link is saved right away, no sheet to fill in.
+ */
+function takeSharedLink() {
+  const params = new URLSearchParams(location.search);
+  const raw = params.get('add') ?? params.get('url') ?? params.get('text');
+  if (raw === null) return;
+  history.replaceState(null, '', location.pathname + location.hash); // so a reload doesn't save it again
+  const parsed = parseLink(raw);
+  if (!parsed) { toast("That didn't include a link to save"); return; }
+  const dup = findDuplicate(parsed);
+  if (dup) { showExisting(dup); return; }
+  const topic = str(params.get('topic'), 40).trim();
+  const it = saveNew(parsed, '', topic ? matchTopic(topic) : '');
+  toast('Saved to Up next', { action: 'Add topic', onAction: () => openEdit(it) });
+}
 
 function saveNew(parsed, title, topic) {
   const it = normalizeItem({ ...parsed, id: uid(), title, customTitle: !!title, topic, createdAt: Date.now(), metaPending: true });
@@ -1176,6 +1199,7 @@ function saveNew(parsed, title, topic) {
   jumpTo(it.id);
   toast('Saved to Up next');
   enrich(it);
+  return it;
 }
 
 function saveEdit(it, parsed, title, topic) {
@@ -1914,6 +1938,7 @@ $('#addBtn').innerHTML = icon('plus');
 $('#addBtn').addEventListener('click', () => openAdd());
 
 render();
+takeSharedLink();
 renderSourceList();
 retryPendingMeta();
 syncSources();

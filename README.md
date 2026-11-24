@@ -64,6 +64,22 @@ Then on your iPhone:
 > On iOS the Home Screen app has **its own storage**, separate from Safari.
 > Each URL (origin) also has its own data. If you move hosts, use **Menu → Export backup** and then **Import backup**.
 
+## Save from the Share sheet (iOS Shortcut)
+
+Opening the app as `…/learn-in-motion/?add=<link>` saves the link straight away (also `?text=` with a link inside, and an optional `&topic=`).
+An iOS Shortcut turns that into a **Save to Learn** button in the Share sheet. Make it once in the **Shortcuts** app:
+
+1. Tap **+** for a new shortcut and name it **Save to Learn**
+2. Open its details (ⓘ) and turn on **Show in Share Sheet**. In the "Receive" action at the top, keep only **URLs**, **Safari web pages** and **Text**. Set "If there's no input" to **Get Clipboard**
+3. Add **URL Encode**, with **Shortcut Input** as its input
+4. Add **Text** and type `https://harrydevforlife.github.io/learn-in-motion/?add=`, then insert the **URL Encoded Text** variable right after it
+5. Add **Open URLs**
+
+Then in YouTube, Safari or Podcasts: **Share → Save to Learn**.
+
+> Shortcuts open links in **Safari**, not in the Home Screen app, and the two keep separate data on iOS.
+> So links saved this way land in the Safari copy of the app. Use the app from Safari if you rely on this.
+
 ## Where your data lives
 
 - Everything is in `localStorage` on the device. There is no server and no sync.

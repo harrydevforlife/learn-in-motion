@@ -8,15 +8,16 @@ Hai việc đầu khiến app dùng được thật hằng ngày trên iPhone, v
 
 ## 1. Nền tảng
 
-- [ ] **Git.** Thư mục dự án chưa là git repo, nên code và lịch sử thay đổi đều có thể mất.
-  Cần `git init`, commit, và đưa các bài test tự động (hiện chỉ nằm trong thư mục tạm) vào repo, ví dụ `tests/`.
-- [ ] **Đưa lên HTTPS** (GitHub Pages hoặc Cloudflare Pages, miễn phí). Đang chạy `http://192.168.1.10:5173` nên:
-  - chế độ offline (service worker) và nút **Paste** không chạy, vì iOS chỉ cho phép chúng trên HTTPS;
-  - chỉ dùng được khi điện thoại ở cùng Wi-Fi với máy Mac đang bật;
-  - nếu cài ra màn hình chính bây giờ, đổi địa chỉ sau này sẽ mất dữ liệu (mỗi địa chỉ có kho lưu riêng).
+- [x] **Git**: https://github.com/harrydevforlife/learn-in-motion
+- [ ] **Đưa các bài test tự động vào repo** (ví dụ `tests/`). Hiện chúng chỉ nằm trong thư mục tạm trên máy.
+- [x] **Đưa lên HTTPS**: https://harrydevforlife.github.io/learn-in-motion/ (GitHub Pages).
+  Nhờ vậy chế độ offline và nút **Paste** chạy được (iOS chỉ cho phép trên HTTPS), dùng được ngoài mạng Wi-Fi nhà,
+  và địa chỉ cố định nên cài ra màn hình chính không lo mất dữ liệu khi đổi máy chủ.
 - [ ] **Lưu link bằng một chạm từ nút Share.** Hiện phải copy link rồi dán vào app.
-  - Làm một iOS Shortcut "Save to Learn" để chọn ngay trong nút Share của YouTube, Safari hay Podcasts.
-  - App cần nhận link qua địa chỉ dạng `?add=<link>` và mở sẵn bảng lưu. Hiện chưa có.
+  - [x] App nhận link qua địa chỉ `?add=<link>` và lưu ngay. Hướng dẫn tạo Shortcut "Save to Learn" nằm trong README.
+  - [ ] Shortcut mở link bằng Safari chứ không mở app ngoài màn hình chính, mà hai bên giữ dữ liệu riêng.
+    Muốn link vào thẳng app ngoài màn hình chính thì cần một "hộp thư" trung gian, ví dụ GitHub Gist:
+    Shortcut ghi link vào Gist, app đọc và nhận link mỗi khi mở.
   - (iOS không hỗ trợ Web Share Target cho PWA, nên Shortcut là cách thay thế.)
 
 ## 2. Học tốt hơn

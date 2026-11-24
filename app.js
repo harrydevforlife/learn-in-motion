@@ -689,7 +689,7 @@ function youtubePlayer() {
       width: '100%',
       height: '100%',
       playerVars: { playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
-      events: { onReady: () => resolve(yt.player), onStateChange: onYouTubeState },
+      events: { onReady: () => resolve(yt.player), onStateChange: onYouTubeState, onError: (e) => debug(`youtube error ${e.data}`) },
     });
   });
   return yt.ready;
@@ -745,7 +745,8 @@ function playYouTube(media, it, auto) {
       debug(`youtube state after 3s: ${s}`);
       if (s !== window.YT.PlayerState.PLAYING && s !== window.YT.PlayerState.BUFFERING && !ytHint) {
         ytHint = true;
-        toast('Tap play on the video once. After that, videos start with sound as you scroll');
+        // It may also just be showing an ad first (the API can't tell), so this stays a gentle hint.
+        toast("Video not starting? Tap play on it once. After that, videos start with sound as you scroll");
       }
     }, 3000);
     if (from.why === 'highlight') highlightToast(from.at);

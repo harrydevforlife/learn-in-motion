@@ -9,9 +9,9 @@ Learned items move to the **Learned** tab with their takeaways, so you can scrol
 ## Features
 
 - Full-screen vertical feed with snap scrolling (one item per swipe)
-- When a card's text doesn't fit, it scrolls inside the card (a fade shows there's more). The button in the corner of the picture switches every card to **compact**: a small thumbnail next to the source, so the title and text get the room. A video you play still opens full size
+- When a card's text doesn't fit, it scrolls inside the card (a fade shows there's more). The ↙↗ button at the end of a card's source line switches every card to **compact**: a small thumbnail next to the source, so the title and text get the room. It holds while playing too, so you can listen to an episode (its player bar stays full width under the thumbnail) and read
 - YouTube videos and Shorts play inline. Timestamps like `&t=90` are kept, a video stops when you scroll past it, and it resumes where you left off
-- **Autoplay**: when you stop scrolling on a card, its video or episode starts by itself (Menu → Autoplay).
+- **Autoplay**: a card's video or episode starts as soon as the card slides into view (Menu → Autoplay).
   iOS only allows sound after a tap, once per player: tap play inside the first video, and play on the first episode (any tap in the app also unlocks episodes).
   The feed shares one YouTube player and one audio player, so after that, the next ones start with sound by themselves.
   To check playback on a phone, open the app with `?debug=1`: a small log of play events appears

@@ -395,9 +395,10 @@ const artHTML = (it) => (it.image
   ? `<img class="thumb" src="${esc(it.image)}" alt="" loading="lazy" decoding="async" data-hide-on-error>`
   : `<span class="art-fallback">${icon('mic')}</span>`);
 
-// Corner button on every picture: switches all cards between big pictures and compact (small thumbnail, more text).
+// Button on each card's source line: switches all cards between big pictures and compact (small thumbnail,
+// more text). It sits outside the picture so a playing video or episode never covers it.
 const sizeBtnHTML = () => `<button type="button" class="size-toggle" data-act="compact" aria-label="Compact cards" aria-pressed="${!!state.prefs.compact}">${icon('shrink')}${icon('expand')}</button>`;
-const mediaHTML = (it) => mediaBodyHTML(it) + sizeBtnHTML();
+const mediaHTML = (it) => mediaBodyHTML(it);
 
 function mediaBodyHTML(it) {
   const title = esc(displayTitle(it));
@@ -449,6 +450,7 @@ function bodyHTML(it, dcard) {
       <span class="source">${esc(it.author || domainOf(it.url))}</span>
       ${when ? `<span class="when">· ${esc(when)}</span>` : ''}
       ${topic ? `<button type="button" class="chip" data-act="topic" data-topic="${esc(topic)}">#${esc(topic)}</button>` : ''}
+      ${sizeBtnHTML()}
     </div>
     <h2 class="title">${esc(displayTitle(it))}</h2>
     ${it.description ? `<p class="desc">${esc(it.description)}</p>` : ''}
@@ -548,8 +550,10 @@ function updateChrome() {
 const io = new IntersectionObserver((entries) => {
   for (const e of entries) {
     if (e.intersectionRatio < 0.35) { stopMedia(e.target); delete e.target.dataset.autoTried; }
+    // Start the next card while it's still sliding in, so it plays as soon as it lands.
+    else if (e.intersectionRatio >= 0.6) activate(e.target);
   }
-}, { root: feed, threshold: [0, 0.35] });
+}, { root: feed, threshold: [0, 0.35, 0.6] });
 
 // A card's text scrolls on its own when it doesn't fit. Fade the edge where more text is hidden.
 function updateFade(content) {
@@ -818,11 +822,13 @@ let settleTimer = 0;
 function scheduleSettle() { clearTimeout(settleTimer); settleTimer = setTimeout(onSettle, 220); }
 feed.addEventListener('scroll', scheduleSettle, { passive: true });
 const activeCard = () => { const el = feed.children[currentIndex()]; return el?.classList.contains('card') ? el : null; };
-const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
 
-async function onSettle() {
+function onSettle() {
   const card = activeCard();
-  if (!card) return;
+  if (card) activate(card);
+}
+
+function activate(card) {
   prefetchHighlights(card);
   if (!state.prefs.autoplay || state.prefs.view === 'learned' || document.hidden || document.querySelector('dialog[open]')) return;
   const it = findItem(card.dataset.id);
@@ -831,8 +837,7 @@ async function onSettle() {
   if (it.type !== 'youtube' && !(it.type === 'podcast' && it.audioUrl)) return;
   card.dataset.autoTried = '1'; // once per visit, so a video you stopped doesn't restart
   debug(`autoplay ${it.type} ${displayTitle(it).slice(0, 30)}`);
-  if (needsHighlight(it)) await withTimeout(highlightFor(it), 2500);
-  if (activeCard() !== card || media.dataset.playing) return; // moved on while waiting
+  // No waiting for the highlight: if it isn't known yet, the video jumps there when it arrives.
   play(card, it, { auto: true });
 }
 
@@ -853,9 +858,9 @@ function highlightFor(it) {
   }
   return highlightJobs.get(it.videoId);
 }
-// The card you're on and the next one, so the next video can start at its highlight right away.
+// The card you're on and the two after it, so the next videos can start at their highlight right away.
 function prefetchHighlights(card) {
-  for (const c of [card, card.nextElementSibling]) {
+  for (const c of [card, card.nextElementSibling, card.nextElementSibling?.nextElementSibling]) {
     const it = c?.dataset.id && findItem(c.dataset.id);
     if (it) highlightFor(it);
   }
@@ -937,6 +942,8 @@ function setCaptions(on) {
   cc.media.classList.toggle('cc', on);
   cc.media.querySelector('.cc-btn').setAttribute('aria-pressed', String(on));
   cc.media.querySelector('.captions').hidden = !on;
+  const line = cc.media.parentElement.querySelector('.caption-line');
+  if (line) line.hidden = !on;
   cc.idx = -2;
   tickCaptions();
 }
@@ -970,9 +977,11 @@ function tickCaptions() {
   const i = lineAt(cc.data.lines, cc.audio.currentTime - cc.offset);
   if (i === cc.idx) return;
   cc.idx = i;
-  const box = cc.media.querySelector('.captions');
-  box.textContent = i >= 0 ? cc.data.lines[i].text : '';
-  box.classList.toggle('empty', i < 0);
+  for (const box of [cc.media.querySelector('.captions'), cc.media.parentElement.querySelector('.caption-line')]) {
+    if (!box) continue;
+    box.textContent = i >= 0 ? cc.data.lines[i].text : '';
+    box.classList.toggle('empty', i < 0);
+  }
   if (trSheet.open) highlightLine(i);
 }
 
@@ -1103,9 +1112,11 @@ function playAudio(media, it, auto) {
   if (cc && cc.media !== media) cc = null; // subtitles belonged to the previous episode
   media.innerHTML = `${artHTML(it)}
     <button type="button" class="captions" data-act="transcript" aria-label="Subtitle. Tap for the full transcript" hidden></button>
-    <button type="button" class="cc-btn" data-act="cc" aria-label="Subtitles" aria-pressed="false">CC</button>
-    <div class="audio-bar"></div>`;
-  media.querySelector('.audio-bar').append(audio);
+    <button type="button" class="cc-btn" data-act="cc" aria-label="Subtitles" aria-pressed="false">CC</button>`;
+  // The player bar (with its seek bar) goes under the artwork, so it stays full width on compact cards too.
+  media.insertAdjacentHTML('afterend', `<div class="audio-bar"></div>
+    <button type="button" class="caption-line" data-act="transcript" aria-label="Subtitle. Tap for the full transcript" hidden></button>`);
+  media.nextElementSibling.append(audio);
   const np = nowPlaying = { it, media, ready: false, saved: it.progress || 0, from: startOf(it).at };
   if (audio.dataset.src !== it.audioUrl) {
     audio.dataset.src = it.audioUrl;
@@ -1142,6 +1153,7 @@ function stopMedia(card) {
   }
   stopYouTube(media);
   if (cc?.media === media) { cc = null; closeSheet(trSheet); }
+  card.querySelectorAll('.stack > .audio-bar, .stack > .caption-line').forEach((el) => el.remove());
   delete media.dataset.playing;
   card.classList.remove('playing');
   media.className = mediaClass(it);
@@ -1236,7 +1248,7 @@ document.addEventListener('error', (e) => {
   if (img.dataset.fallback) { const f = img.dataset.fallback; delete img.dataset.fallback; img.src = f; return; }
   if ('fallbackTile' in img.dataset) {
     const it = findItem(img.closest('.card')?.dataset.id);
-    if (it) img.closest('.media').innerHTML = tileHTML(it) + sizeBtnHTML();
+    if (it) img.closest('.media').innerHTML = tileHTML(it);
     return;
   }
   if ('hideOnError' in img.dataset) img.style.visibility = 'hidden';

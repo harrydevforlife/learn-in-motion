@@ -1,0 +1,100 @@
+# Learn in Motion
+
+A mobile-first web app (PWA) for learning from the videos, podcasts and articles you save or follow, one card at a time in a vertical feed.
+Nothing to build, no backend, no account. It's plain HTML, CSS and JS.
+
+**The loop:** copy a link → tap **+** → **Paste** → scroll the feed → watch or read → write a one-line **takeaway** → tap **Got it**.
+Learned items move to the **Learned** tab with their takeaways, so you can scroll back through them to review.
+
+## Features
+
+- Full-screen vertical feed with snap scrolling (one item per swipe)
+- When a card's text doesn't fit, it scrolls inside the card (a fade shows there's more). The button in the corner of the picture switches every card to **compact**: a small thumbnail next to the source, so the title and text get the room. A video you play still opens full size
+- YouTube videos and Shorts play inline. Timestamps like `&t=90` are kept, and a video stops when you scroll past it
+- Podcasts:
+  - Apple Podcasts and feed episodes play in a native audio player that remembers where you stopped
+  - Spotify episodes play in Spotify's own player
+  - When an episode ends, the app offers to mark it learned
+  - **Subtitles** for shows that publish a transcript in their feed (the Podcasting 2.0 `<podcast:transcript>` tag; many indie and tech shows do, most big network shows don't).
+    The **CC** button on the player turns them on or off. Tap the subtitle to read the full transcript, and tap a line there to jump to it.
+    If the subtitles run early or late (some hosts insert ads into the audio), use **Out of sync?** and tap the line you're hearing
+- Articles show title, description and preview image, and open in Safari
+- **Follow sources**: tap **+** → **Follow a source** and paste one of the links below. On first follow, the 3 newest posts come in. After that, new posts land in Up next on their own (checked when the app opens, at most every 30 min)
+  - YouTube channels (`youtube.com/@name`) and playlists
+  - Podcasts (Apple Podcasts or Spotify show link)
+  - Substack, Medium, or any blog or RSS/Atom feed
+- Manage what you follow in the **Sources** tab
+- **Discover**: pick a few interests and it finds things to learn on its own
+  - What you get: YouTube videos, podcast episodes from established shows, and articles from Hacker News, dev.to and Wikipedia, mixed into one feed
+  - Every few cards there's a "Sources to follow" card with YouTube channels, podcasts and blogs for that topic
+  - Each card has **Save** (to Up next), **Skip** (never shown again), **Follow** (its channel, show or blog) and **Open**
+  - Suggestions refresh after 6 hours. **Load more** at the end of the feed fetches another batch
+- Titles and previews are filled in automatically
+- Topics with filter chips, plus a shuffle mode
+- Takeaway notes, a Learned tab, and undo for "Got it" and delete
+- Light and dark mode: **Menu → Appearance** cycles **Light → Dark → Auto** (Auto follows the phone)
+- Export and import a JSON backup (opens the iOS share sheet)
+- Works offline once installed: the app shell is cached by a service worker
+
+## Run it locally
+
+```bash
+python3 -m http.server 5173
+# then open http://localhost:5173
+```
+
+To try it on your iPhone, connect it to the same Wi-Fi and open `http://<your-mac-ip>:5173` in Safari.
+Get the IP with `ipconfig getifaddr en0`.
+Over plain `http` the service worker and the **Paste** button don't work: iOS only allows them on HTTPS.
+Long-press the field to paste instead.
+
+## Put it on the internet (HTTPS) and install it
+
+Any static host works. Upload the folder as it is:
+
+- **GitHub Pages**: push to a repo, then Settings → Pages → deploy from branch
+- **Cloudflare Pages**, **Netlify** or **Vercel**: point them at this folder, with no build command
+
+Then on your iPhone:
+
+1. Open the HTTPS URL in **Safari**
+2. Tap **Share**, then **Add to Home Screen**
+3. Launch it from the home screen. It runs full screen like a native app
+
+> On iOS the Home Screen app has **its own storage**, separate from Safari.
+> Each URL (origin) also has its own data. If you move hosts, use **Menu → Export backup** and then **Import backup**.
+
+## Where your data lives
+
+- Everything is in `localStorage` on the device. There is no server and no sync.
+- To fetch titles and previews, the app sends the link you save to:
+  - YouTube oEmbed (with noembed.com as a fallback) for videos
+  - Spotify oEmbed, and Apple's iTunes API, for podcasts
+  - microlink.io for articles. Its free tier is ~50 lookups a day; when that runs out, r.jina.ai is used for the title
+- Discover searches those same services, plus Hacker News (Algolia), dev.to and Wikipedia, with your interest keywords. YouTube search and Feedly's feed search go through r.jina.ai.
+  A YouTube search page is about 1.5 MB, so each Discover refresh downloads a few MB.
+- Podcast transcripts are loaded from the podcast's own host (through r.jina.ai when the host blocks browser requests). To find one, the app loads the show's feed once per episode.
+- Followed feeds are loaded directly when the site allows it (most podcast feeds do).
+  YouTube, Substack, Medium and most blogs block that, so their feeds go through r.jina.ai, with rss2json.com as a backup.
+  Both are free services with rate limits, which is fine for personal use.
+- Export a backup now and then, especially before clearing Safari data.
+
+## Files
+
+| File | What it is |
+|---|---|
+| `index.html` | App shell, sheets (add, note, menu) and iOS meta tags |
+| `styles.css` | All styles: minimal, light and dark themes, mobile-first, safe-area aware |
+| `app.js` | State, link parsing, rendering, players, sources, metadata lookups, backup |
+| `feeds.js` | Finds the feed behind a link, loads it, parses RSS / Atom |
+| `discover.js` | Discover's search providers (YouTube, iTunes, Hacker News, dev.to, Wikipedia, Feedly) |
+| `transcript.js` | Podcast subtitles: finds an episode's transcript, parses WebVTT / SRT / JSON / HTML into timed lines |
+| `sw.js` | Service worker: network first, cached shell as fallback |
+| `manifest.webmanifest` | PWA manifest (name, icons, standalone display) |
+| `icons/` | App icons, generated by `node scripts/make-icons.mjs` |
+
+When you add a new file to the app shell, also add it to `SHELL` in `sw.js` and bump `VERSION`.
+
+## Ideas for later
+
+See [ROADMAP.md](ROADMAP.md) for the list of planned improvements, in order of priority.

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Learn in Motion</title>
+  <meta name="description" content="Scroll through the YouTube videos and articles you saved to learn.">
+
+  <!-- Installable on iPhone: Safari → Share → Add to Home Screen -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e0e0e" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Learn">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+
+  <script>
+    // Apply a saved Light or Dark choice before the first paint. "Auto" follows the phone.
+    try { const t = JSON.parse(localStorage.getItem('lim.prefs.v1') || '{}').theme; if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
+  </script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <nav class="topics" id="topics" aria-label="Filter by topic"></nav>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="discoverRefresh" aria-label="New suggestions" hidden></button>
+      <button class="icon-btn" id="shuffleBtn" aria-pressed="false" aria-label="Shuffle"></button>
+      <button class="icon-btn" id="menuBtn" aria-label="Menu"></button>
+    </div>
+  </header>
+
+  <main class="feed" id="feed" aria-live="polite"></main>
+
+  <nav class="bottomnav" aria-label="Views">
+    <button class="tab" data-view="discover" aria-pressed="false">
+      <span class="tab-icon" data-icon="compass"></span>
+      <span class="tab-label">Discover</span>
+    </button>
+    <button class="tab" data-view="queue" aria-pressed="true">
+      <span class="tab-icon" data-icon="stack"></span>
+      <span class="tab-label">Up next <span class="count" id="countQueue">0</span></span>
+    </button>
+    <button class="fab" id="addBtn" aria-label="Save a link"></button>
+    <button class="tab" data-view="learned" aria-pressed="false">
+      <span class="tab-icon" data-icon="cap"></span>
+      <span class="tab-label">Learned <span class="count" id="countLearned">0</span></span>
+    </button>
+    <button class="tab" id="sourcesTab">
+      <span class="tab-icon" data-icon="rss"></span>
+      <span class="tab-label">Sources</span>
+    </button>
+  </nav>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+    <span class="toast-msg"></span>
+    <button class="toast-action" hidden></button>
+  </div>
+
+  <!-- Add / edit sheet -->
+  <dialog class="sheet" id="addSheet" aria-labelledby="addTitle">
+    <form class="sheet-body" id="addForm" method="dialog" novalidate>
+      <div class="grabber"></div>
+      <div class="segmented" id="addModeRow" role="group" aria-label="What to add">
+        <button type="button" data-mode="save" aria-pressed="true">Save a link</button>
+        <button type="button" data-mode="follow" aria-pressed="false">Follow a source</button>
+      </div>
+      <h2 class="sheet-title" id="addTitle" hidden>Edit</h2>
+
+      <label class="field">
+        <span class="field-label">Link</span>
+        <div class="input-row">
+          <input name="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="YouTube, podcast or article link">
+          <button type="button" class="btn ghost" id="pasteBtn">Paste</button>
+        </div>
+        <small class="detect" id="detect"></small>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Topic</span>
+        <input name="topic" autocomplete="off" autocapitalize="words" placeholder="e.g. AI, Design, Money">
+        <div class="chip-row" id="topicPicks"></div>
+      </label>
+
+      <label class="field" id="titleField">
+        <span class="field-label">Title <em>optional, filled in automatically</em></span>
+        <input name="title" autocomplete="off">
+      </label>
+
+      <div class="sheet-actions">
+        <button class="btn ghost" type="button" data-close>Cancel</button>
+        <button class="btn primary" value="save" id="addSubmit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Takeaway note sheet -->
+  <dialog class="sheet" id="noteSheet" aria-labelledby="noteHeading">
+    <form class="sheet-body" id="noteForm" method="dialog">
+      <div class="grabber"></div>
+      <h2 class="sheet-title" id="noteHeading">Key takeaway</h2>
+      <p class="sheet-sub" id="noteItemTitle"></p>
+      <textarea name="note" rows="6" placeholder="What's the one idea you want to remember?"></textarea>
+      <div class="sheet-actions">
+        <button class="btn ghost" value="save">Save</button>
+        <button class="btn primary" value="learned" id="noteLearnedBtn">Save &amp; mark learned</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Per-item actions -->
+  <dialog class="sheet" id="itemSheet" aria-labelledby="itemSheetTitle">
+    <div class="sheet-body list">
+      <div class="grabber"></div>
+      <p class="sheet-sub center" id="itemSheetTitle"></p>
+      <button class="list-btn" data-item-act="edit"><span data-icon="edit"></span>Edit title &amp; topic</button>
+      <button class="list-btn" data-item-act="copy"><span data-icon="copy"></span>Copy link</button>
+      <button class="list-btn" data-item-act="share" hidden><span data-icon="share"></span>Share…</button>
+      <button class="list-btn danger" data-item-act="delete"><span data-icon="trash"></span>Delete</button>
+      <button class="btn ghost block" data-item-act="cancel">Cancel</button>
+    </div>
+  </dialog>
+
+  <!-- App menu -->
+  <dialog class="sheet" id="menuSheet" aria-labelledby="menuTitle">
+    <div class="sheet-body list">
+      <div class="grabber"></div>
+      <h2 class="sheet-title" id="menuTitle">Learn in Motion</h2>
+      <p class="sheet-sub" id="menuStats"></p>
+      <button class="list-btn" data-menu-act="export"><span data-icon="download"></span>Export backup</button>
+      <button class="list-btn" data-menu-act="import"><span data-icon="upload"></span>Import backup</button>
+      <button class="list-btn" data-menu-act="theme" id="themeBtn"><span id="themeIcon"></span>Appearance<em class="list-count" id="themeValue"></em></button>
+      <button class="list-btn" data-menu-act="samples"><span data-icon="sparkle"></span>Add sample items</button>
+      <button class="list-btn" data-menu-act="install" id="menuInstall"><span data-icon="share"></span>Install on iPhone</button>
+      <p class="fineprint">No account, no server: everything is stored on this device. Back it up now and then. To show titles and previews, links you save are looked up on YouTube, Spotify, Apple Podcasts or microlink.io. Feeds that block direct access are fetched through r.jina.ai or rss2json.com.</p>
+      <button class="btn ghost block" data-menu-act="close">Close</button>
+    </div>
+  </dialog>
+
+  <!-- Discover interests -->
+  <dialog class="sheet" id="interestsSheet" aria-labelledby="interestsTitle">
+    <form class="sheet-body" id="interestsForm" method="dialog">
+      <div class="grabber"></div>
+      <h2 class="sheet-title" id="interestsTitle">What do you want to learn about?</h2>
+      <p class="sheet-sub">Discover finds videos, podcasts, articles and sources to follow for these topics.</p>
+      <div class="chip-row" id="interestChips"></div>
+      <div class="input-row">
+        <input name="custom" autocomplete="off" autocapitalize="words" placeholder="Add your own, e.g. Stoicism">
+        <button type="button" class="btn ghost" id="interestAdd">Add</button>
+      </div>
+      <small class="detect" id="interestsCount"></small>
+      <div class="sheet-actions">
+        <button class="btn ghost" type="button" data-close>Cancel</button>
+        <button class="btn primary" value="save" id="interestsSave">Show me</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Followed sources -->
+  <dialog class="sheet" id="sourcesSheet" aria-labelledby="sourcesTitle">
+    <div class="sheet-body">
+      <div class="grabber"></div>
+      <div class="sheet-head">
+        <h2 class="sheet-title" id="sourcesTitle">Sources</h2>
+        <button class="btn ghost small" id="refreshBtn" type="button"><span data-icon="refresh"></span>Refresh</button>
+      </div>
+      <p class="sheet-sub" id="sourcesStatus" aria-live="polite"></p>
+      <div class="source-list" id="sourceList"></div>
+      <button class="btn primary block" id="followBtn" type="button">Follow a source</button>
+      <button class="btn ghost block" type="button" data-close>Close</button>
+    </div>
+  </dialog>
+
+  <!-- Install help -->
+  <dialog class="sheet" id="installSheet" aria-labelledby="installTitle">
+    <div class="sheet-body">
+      <div class="grabber"></div>
+      <h2 class="sheet-title" id="installTitle">Install on iPhone</h2>
+      <ol class="install-steps">
+        <li><span class="num">1</span><span>Open this page in <b>Safari</b></span></li>
+        <li><span class="num">2</span><span>Tap <b>Share</b> <span class="inline-icon" data-icon="share"></span> in the toolbar</span></li>
+        <li><span class="num">3</span><span>Scroll down, choose <b>Add to Home Screen</b>, then <b>Add</b></span></li>
+      </ol>
+      <p class="fineprint">It opens full screen like a normal app. Heads-up: the Home Screen app keeps its own saved items, separate from Safari. Start saving after you install, or move items over with Export and Import.</p>
+      <button class="btn primary block" type="button" data-close>Got it</button>
+    </div>
+  </dialog>
+
+  <!-- Podcast transcript: read along, tap a line to jump there -->
+  <dialog class="sheet" id="transcriptSheet" aria-labelledby="trTitle">
+    <div class="sheet-body">
+      <div class="tr-head">
+        <div class="grabber"></div>
+        <div class="sheet-head">
+          <h2 class="sheet-title" id="trTitle">Transcript</h2>
+          <div class="tr-actions">
+            <button type="button" class="btn small ghost" id="trSync">Out of sync?</button>
+            <button type="button" class="icon-btn small" data-close aria-label="Close"><span data-icon="x"></span></button>
+          </div>
+        </div>
+        <p class="sheet-sub" id="trSub"></p>
+        <p class="tr-hint" id="trHint" hidden>Tap the line you're hearing right now. The subtitles will follow it.</p>
+      </div>
+      <div class="tr-list" id="trList"></div>
+    </div>
+  </dialog>
+
+  <input type="file" id="importInput" accept="application/json,.json" hidden>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

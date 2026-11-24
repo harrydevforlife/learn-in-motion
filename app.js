@@ -50,6 +50,8 @@ const ICONS = {
   pause: '<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/>',
   back15: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><text x="12.2" y="15.6" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none" font-family="system-ui, sans-serif">15</text>',
   fwd30: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/><text x="11.8" y="15.6" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none" font-family="system-ui, sans-serif">30</text>',
+  star: '<path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" fill="currentColor" stroke="none"/>',
+  yt: '<rect x="2.5" y="5" width="19" height="14" rx="4"/><path d="M10 9.2v5.6l4.8-2.8z" fill="currentColor"/>',
   shrink: '<path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="m14 10 7-7"/><path d="m3 21 7-7"/>',
   expand: '<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/>',
 };
@@ -231,6 +233,7 @@ function normalizeItem(raw) {
     ccOffset: Math.max(-7200, Math.min(7200, Number(raw.ccOffset) || 0)),
     // YouTube: where the "Most replayed" part starts (0 = none), and when we looked it up.
     highlight: parsed.type === 'youtube' ? Math.max(0, Math.round(Number(raw.highlight) || 0)) : 0,
+    highlightEnd: parsed.type === 'youtube' ? Math.max(0, Math.round(Number(raw.highlightEnd) || 0)) : 0,
     highlightChecked: parsed.type === 'youtube' ? Number(raw.highlightChecked) || 0 : 0,
     metaPending: !!raw.metaPending,
     metaTries: Number(raw.metaTries) || 0,
@@ -278,7 +281,7 @@ function normalizeDiscover(raw) {
 const state = {
   items: load(STORE_KEY, []).map(normalizeItem).filter(Boolean),
   sources: load(SOURCES_KEY, []).map(normalizeSource).filter(Boolean),
-  prefs: Object.assign({ view: 'queue', topic: '', shuffle: false, compact: false, captions: true, autoplay: true, highlights: true, rate: 1, theme: 'auto', interests: [], dInterest: '' }, load(PREFS_KEY, {})),
+  prefs: Object.assign({ view: 'queue', topic: '', shuffle: false, compact: false, captions: true, autoplay: true, highlights: true, rate: 1, railOpen: true, theme: 'auto', interests: [], dInterest: '' }, load(PREFS_KEY, {})),
   discover: normalizeDiscover(load(DISCOVER_KEY, null)),
   dseen: new Set(load(DSEEN_KEY, []).filter((k) => typeof k === 'string')),
   seed: Math.floor(Math.random() * 1e9),
@@ -407,25 +410,15 @@ function mediaBodyHTML(it) {
   const title = esc(displayTitle(it));
   if (it.type === 'youtube') {
     const base = `https://i.ytimg.com/vi/${it.videoId}`;
-    const extra = it.progress > 30 ? ` · ${fmtTime(it.progress)} in`
-      : it.start ? ` · from ${fmtTime(it.start)}`
-      : state.prefs.highlights && it.highlight ? ` · ★ ${fmtTime(it.highlight)}`
-      : it.duration ? ` · ${fmtTime(it.duration)}` : '';
-    const badge = (it.vertical ? 'Short' : 'YouTube') + extra;
     return `<button type="button" data-act="play" aria-label="Play: ${title}">
         <img class="thumb" src="${base}/maxresdefault.jpg" data-fallback="${base}/hqdefault.jpg" alt="" loading="lazy" decoding="async">
         <span class="play">${icon('play')}</span>
-        <span class="badge">${badge}</span>
       </button>`;
   }
   if (isAudioType(it)) {
-    const badge = it.type === 'spotify'
-      ? 'Spotify'
-      : ['Podcast', it.duration && fmtDuration(it.duration), it.progress > 30 && `${fmtTime(it.progress)} in`].filter(Boolean).join(' · ');
     return `<button type="button" data-act="play" aria-label="Play: ${title}">
         ${artHTML(it)}
         <span class="play">${icon('play')}</span>
-        <span class="badge">${esc(badge)}</span>
       </button>`;
   }
   if (it.image) {
@@ -443,6 +436,44 @@ function tileHTML(it) {
     </a>`;
 }
 
+// Under every picture: what it is and how long (live time while a video plays), the most replayed
+// part, and the big/compact toggle at the right end.
+const hlChipHTML = (it) => (it.type === 'youtube' && state.prefs.highlights && it.highlight > 0
+  ? `<button type="button" class="ms-hl" data-act="to-highlight" aria-label="Jump to the most replayed part, at ${fmtTime(it.highlight)}">${icon('star')}${fmtTime(it.highlight)}</button>`
+  : '');
+function stripText(it) {
+  if (it.type === 'youtube') {
+    return [it.vertical ? 'Short' : 'YouTube', it.progress > 30 ? `${fmtTime(it.progress)} in` : it.start ? `from ${fmtTime(it.start)}` : '', it.duration && fmtTime(it.duration)].filter(Boolean).join(' · ');
+  }
+  if (it.type === 'spotify') return 'Spotify';
+  if (it.type === 'podcast') return ['Podcast', it.duration && fmtDuration(it.duration), it.progress > 30 && `${fmtTime(it.progress)} in`].filter(Boolean).join(' · ');
+  return 'Article';
+}
+function stripHTML(it) {
+  return `<div class="media-strip">
+      ${it.type === 'youtube' ? '<input type="range" class="ms-seek" min="0" max="1000" step="1" value="0" aria-label="Position in video" hidden>' : ''}
+      <div class="ms-row"><span class="ms-text">${esc(stripText(it))}</span>${hlChipHTML(it)}${sizeBtnHTML()}</div>
+    </div>`;
+}
+function renderStrip(card, it) {
+  const strip = card.querySelector('.stack > .media-strip');
+  if (strip) strip.outerHTML = stripHTML(it);
+}
+
+// The action rail: icon buttons down the right side; ⋯ at the bottom folds them away.
+const railHTML = (items) => `<div class="rail" role="toolbar" aria-label="Actions" aria-orientation="vertical">
+    <div class="rail-items">${items}</div>
+    <button type="button" class="rail-btn rail-toggle" data-act="rail" aria-expanded="${!!state.prefs.railOpen}" aria-label="${state.prefs.railOpen ? 'Hide actions' : 'Show actions'}" title="${state.prefs.railOpen ? 'Hide actions' : 'Show actions'}">${icon('more')}</button>
+  </div>`;
+
+function toggleRail() {
+  state.prefs.railOpen = !state.prefs.railOpen;
+  persistPrefs();
+  feed.classList.toggle('rail-closed', !state.prefs.railOpen);
+  const label = state.prefs.railOpen ? 'Hide actions' : 'Show actions';
+  feed.querySelectorAll('.rail-toggle').forEach((b) => { b.setAttribute('aria-expanded', String(state.prefs.railOpen)); b.setAttribute('aria-label', label); b.title = label; });
+}
+
 function bodyHTML(it, dcard) {
   const learned = it.status === 'learned';
   const when = dcard ? (it.publishedAt ? ago(it.publishedAt) : '')
@@ -453,7 +484,6 @@ function bodyHTML(it, dcard) {
       <span class="source">${esc(it.author || domainOf(it.url))}</span>
       ${when ? `<span class="when">· ${esc(when)}</span>` : ''}
       ${topic ? `<button type="button" class="chip" data-act="topic" data-topic="${esc(topic)}">#${esc(topic)}</button>` : ''}
-      ${sizeBtnHTML()}
     </div>
     <h2 class="title">${esc(displayTitle(it))}</h2>
     ${it.description ? `<p class="desc">${esc(it.description)}</p>` : ''}
@@ -462,22 +492,22 @@ function bodyHTML(it, dcard) {
 
 function actionsHTML(it) {
   const learned = it.status === 'learned';
-  const openLabel = { youtube: 'YouTube', spotify: 'Spotify', podcast: 'Open' }[it.type] || 'Read';
-  return `<button type="button" class="act learn${learned ? ' on' : ''}" data-act="learned" aria-pressed="${learned}">${icon('check')}<span>${learned ? 'Learned' : 'Got it'}</span></button>
-    <button type="button" class="act" data-act="note">${icon('pen')}<span>${it.note ? 'Edit note' : 'Note'}</span></button>
-    <a class="act" href="${esc(it.url)}" target="_blank" rel="noopener">${icon('external')}<span>${openLabel}</span></a>
-    <button type="button" class="act" data-act="more" aria-label="More options">${icon('more')}</button>`;
+  const open = { youtube: 'Open in YouTube', spotify: 'Open in Spotify', podcast: 'Open the episode page' }[it.type] || 'Read the article';
+  const got = learned ? 'Learned. Tap to move it back to Up next' : 'Got it: mark as learned';
+  return `<button type="button" class="rail-btn primary${learned ? ' on' : ''}" data-act="learned" aria-pressed="${learned}" aria-label="${got}" title="${learned ? 'Learned' : 'Got it'}">${icon('check')}</button>
+    <button type="button" class="rail-btn${it.note ? ' has-note' : ''}" data-act="note" aria-label="${it.note ? 'Edit your note' : 'Write a note'}" title="Note">${icon('pen')}</button>
+    <a class="rail-btn" href="${esc(it.url)}" target="_blank" rel="noopener" aria-label="${open}" title="${open}">${icon(it.type === 'youtube' ? 'yt' : 'external')}</a>`;
 }
 
 function cardHTML(it, dcard) {
-  const actionsClass = dcard ? `actions discover${dcard.follow ? '' : ' three'}` : 'actions';
   return `<article class="card" data-id="${esc(it.id)}" style="--hue:${hueOf(it)}">
     <div class="card-inner">
       <div class="content"><div class="stack">
         <div class="${mediaClass(it)}">${mediaHTML(it)}</div>
+        ${stripHTML(it)}
         <div class="body">${bodyHTML(it, dcard)}</div>
       </div></div>
-      <div class="${actionsClass}">${dcard ? discoverActionsHTML(dcard) : actionsHTML(it)}</div>
+      ${railHTML(dcard ? discoverActionsHTML(dcard) : actionsHTML(it))}
     </div>
   </article>`;
 }
@@ -543,6 +573,7 @@ function updateChrome() {
   $('#countLearned').textContent = learned;
   document.querySelectorAll('.tab[data-view]').forEach((t) => t.setAttribute('aria-pressed', String(t.dataset.view === state.prefs.view)));
   feed.classList.toggle('compact', !!state.prefs.compact);
+  feed.classList.toggle('rail-closed', !state.prefs.railOpen);
   $('#discoverRefresh').hidden = state.prefs.view !== 'discover' || !state.prefs.interests.length;
   const shuffleBtn = $('#shuffleBtn');
   shuffleBtn.hidden = state.prefs.view !== 'queue';
@@ -597,11 +628,12 @@ function updateCardEl(it) {
   const card = cardEl(it.id);
   if (!card) return;
   card.querySelector('.body').innerHTML = bodyHTML(it);
-  card.querySelector('.actions').innerHTML = actionsHTML(it);
+  card.querySelector('.rail-items').innerHTML = actionsHTML(it);
   const media = card.querySelector('.media');
   if (!media.dataset.playing) {
     media.className = mediaClass(it);
     media.innerHTML = mediaHTML(it);
+    renderStrip(card, it);
   }
 }
 
@@ -631,12 +663,12 @@ function startOf(it) {
   return { at: 0, why: '' };
 }
 
-function play(card, it, { auto = false } = {}) {
+function play(card, it, { auto = false, from = null } = {}) {
   const media = card.querySelector('.media');
   if (!media || media.dataset.playing) return;
   const title = esc(displayTitle(it));
   if (it.type === 'youtube') {
-    playYouTube(media, it, auto); // the shared player sits on top of the picture
+    playYouTube(media, it, auto, from); // the shared player sits on top of the picture
   } else if (it.type === 'podcast' && it.audioUrl) {
     playAudio(media, it, auto);
   } else if (auto) {
@@ -658,8 +690,10 @@ function play(card, it, { auto = false } = {}) {
   card.querySelector('.content').scrollTop = 0;
 }
 
+// At the end of a video or episode, ask for the takeaway (with "Save & mark learned").
 function finished(it) {
-  if (byId(it.id) && it.status !== 'learned') toast('Finished. Mark it as learned?', { action: 'Got it', onAction: () => setLearned(it, true) });
+  if (!byId(it.id) || it.status === 'learned' || document.querySelector('dialog[open]')) return;
+  openNote(it, 'Finished. What will you remember?');
 }
 
 /* YouTube goes through its IFrame API: it tells us where you are (to resume later) and when a video ends.
@@ -708,6 +742,7 @@ function placeYouTube() {
   const r = ytNow.media.getBoundingClientRect();
   const f = feed.getBoundingClientRect();
   Object.assign(ytHost.style, {
+    borderRadius: getComputedStyle(ytNow.media).borderRadius, // edge to edge in big mode, rounded when compact
     width: `${r.width}px`,
     height: `${r.height}px`,
     transform: `translate(${r.left - f.left}px, ${r.top - f.top + feed.scrollTop}px)`,
@@ -723,7 +758,7 @@ feed.addEventListener('scroll', queuePlace, { capture: true, passive: true });
 addEventListener('resize', queuePlace);
 const ytRO = new ResizeObserver(queuePlace);
 
-function playYouTube(media, it, auto) {
+function playYouTube(media, it, auto, forcedFrom = null) {
   if (!window.YT?.Player) { // API not loaded (offline or blocked): a plain embed still plays
     const from = startOf(it);
     const params = new URLSearchParams({ autoplay: '1', playsinline: '1', rel: '0', modestbranding: '1' });
@@ -741,10 +776,12 @@ function playYouTube(media, it, auto) {
   placeYouTube();
   youtubePlayer().then((p) => {
     if (ytNow !== now) return;
-    const from = startOf(it); // decided now: the highlight may have arrived while the player was loading
+    const from = forcedFrom != null ? { at: forcedFrom, why: 'highlight' } : startOf(it); // decided now: the highlight may have arrived while the player was loading
     debug(`youtube ${it.videoId} ${auto ? 'auto' : 'tap'} from ${Math.floor(from.at)}s ${from.why}`);
     p.unMute(); // an older version could leave the player muted, and YouTube remembers that
     p.loadVideoById({ videoId: it.videoId, startSeconds: Math.floor(from.at) });
+    clearInterval(now.tick);
+    now.tick = setInterval(updateYouTubeStrip, 500); // live time and seek bar under the video
     // If it hasn't started after a moment, iOS is waiting for a tap on the player's own play button.
     setTimeout(() => {
       if (ytNow !== now) return;
@@ -792,6 +829,42 @@ function saveYouTube() {
   saveItem(now.it);
 }
 
+// The strip under a playing video: elapsed / total time, a seek bar with the most replayed part marked.
+function updateYouTubeStrip() {
+  const now = ytNow;
+  const p = yt?.player;
+  if (!now || !p?.getCurrentTime || p.getVideoData?.().video_id !== now.it.videoId) return;
+  const strip = now.media.parentElement.querySelector(':scope > .media-strip');
+  if (!strip) return;
+  const it = now.it;
+  const dur = p.getDuration?.() || it.duration || 0;
+  const t = now.dragging ? now.dragTo : p.getCurrentTime() || 0;
+  const seek = strip.querySelector('.ms-seek');
+  if (seek) {
+    seek.hidden = !dur;
+    if (!now.dragging) seek.value = String(dur ? Math.round((t / dur) * 1000) : 0);
+    seek.style.setProperty('--fill', `${dur ? (t / dur) * 100 : 0}%`);
+    if (dur && it.highlight > 0 && state.prefs.highlights) {
+      const end = it.highlightEnd > it.highlight ? it.highlightEnd : it.highlight + 45;
+      seek.style.setProperty('--hs', `${(it.highlight / dur) * 100}%`);
+      seek.style.setProperty('--he', `${Math.min(100, (end / dur) * 100)}%`);
+    }
+  }
+  const text = strip.querySelector('.ms-text');
+  if (text) text.textContent = `${fmtTime(Math.floor(t))} / ${dur ? fmtTime(Math.round(dur)) : '--:--'}`;
+}
+
+function jumpToHighlight(card, it) {
+  if (!(it.highlight > 0)) return;
+  const media = card.querySelector('.media');
+  if (ytNow?.media === media) {
+    yt?.player?.seekTo?.(it.highlight, true);
+    highlightToast(it.highlight);
+  } else {
+    play(card, it, { from: it.highlight });
+  }
+}
+
 function highlightToast(at) {
   toast(`Starting at the most replayed part (${fmtTime(at)})`, { action: 'From start', onAction: () => yt?.player?.seekTo?.(0, true) });
 }
@@ -799,6 +872,7 @@ function highlightToast(at) {
 function stopYouTube(media) {
   if (ytNow?.media !== media) return;
   clearInterval(ytNow.timer);
+  clearInterval(ytNow.tick);
   try { saveYouTube(); yt?.player?.pauseVideo?.(); } catch { /* player not ready yet */ }
   ytRO.unobserve(media);
   ytHost.hidden = true;
@@ -838,6 +912,12 @@ function activate(card) {
   const media = card.querySelector('.media');
   if (!it || !media || media.dataset.playing || card.dataset.autoTried) return;
   if (it.type !== 'youtube' && !(it.type === 'podcast' && it.audioUrl)) return;
+  if (it.type === 'youtube' && !window.YT?.Player) {
+    // Wait for the YouTube API instead of falling back to a plain embed: only the shared player
+    // keeps iOS's permission to play sound from one video to the next.
+    loadYouTubeApi().then(() => { if (activeCard() === card) activate(card); }, () => {});
+    return;
+  }
   card.dataset.autoTried = '1'; // once per visit, so a video you stopped doesn't restart
   debug(`autoplay ${it.type} ${displayTitle(it).slice(0, 30)}`);
   // No waiting for the highlight: if it isn't known yet, the video jumps there when it arrives.
@@ -850,13 +930,19 @@ const needsHighlight = (it) => state.prefs.highlights && it.type === 'youtube' &
 function highlightFor(it) {
   if (!needsHighlight(it) || !navigator.onLine) return Promise.resolve();
   if (!highlightJobs.has(it.videoId)) {
-    highlightJobs.set(it.videoId, youtubeHighlight(it.videoId).then(({ start, duration }) => {
+    highlightJobs.set(it.videoId, youtubeHighlight(it.videoId).then(({ start, end, duration }) => {
       it.highlight = start;
+      it.highlightEnd = end || 0;
       it.highlightChecked = Date.now();
       if (!it.duration && duration) it.duration = duration;
       saveItem(it);
-      const media = cardEl(it.id)?.querySelector('.media');
-      if (media && !media.dataset.playing) media.innerHTML = mediaHTML(it); // show ★ in the badge
+      const card = cardEl(it.id);
+      const media = card?.querySelector('.media');
+      if (media && !media.dataset.playing) renderStrip(card, it); // show the ★ chip
+      else if (media) { // playing: add the chip without touching the live seek bar
+        const toggle = card.querySelector('.stack > .media-strip .ms-row .size-toggle');
+        if (toggle && !toggle.parentElement.querySelector('.ms-hl')) toggle.insertAdjacentHTML('beforebegin', hlChipHTML(it));
+      }
     }).catch(() => { /* try again another time */ }).finally(() => highlightJobs.delete(it.videoId)));
   }
   return highlightJobs.get(it.videoId);
@@ -1109,13 +1195,13 @@ audio.addEventListener('seeked', () => { if (cc?.audio === audio) tickCaptions()
 
 const audioBarHTML = () => `<div class="audio-bar">
     <input type="range" class="ab-seek" min="0" max="1000" step="1" value="0" aria-label="Position in episode">
+    <div class="ab-times"><span class="ab-time ab-now">0:00</span><span class="ab-time ab-left">--:--</span></div>
     <div class="ab-row">
-      <span class="ab-time ab-now">0:00</span>
+      <button type="button" class="ab-rate" data-act="audio-rate" aria-label="Playback speed">${rate()}×</button>
       <button type="button" class="ab-btn" data-act="audio-back" aria-label="Back 15 seconds">${icon('back15')}</button>
       <button type="button" class="ab-btn ab-play" data-act="audio-toggle" aria-label="Pause">${icon('pause')}${icon('play')}</button>
       <button type="button" class="ab-btn" data-act="audio-fwd" aria-label="Forward 30 seconds">${icon('fwd30')}</button>
-      <span class="ab-time ab-left">--:--</span>
-      <button type="button" class="ab-rate" data-act="audio-rate" aria-label="Playback speed">${rate()}×</button>
+      ${sizeBtnHTML()}
     </div>
   </div>`;
 
@@ -1151,6 +1237,23 @@ function audioAction(act) {
   }
   renderAudioBar();
 }
+
+// Dragging the video's seek bar works the same way.
+const ownsVideoSeek = (el) => el.classList?.contains('ms-seek') && ytNow && el.closest('.card') === ytNow.media.closest('.card');
+feed.addEventListener('input', (e) => {
+  if (!ownsVideoSeek(e.target)) return;
+  const dur = yt?.player?.getDuration?.() || ytNow.it.duration || 0;
+  ytNow.dragging = true;
+  ytNow.dragTo = (e.target.value / 1000) * dur;
+  updateYouTubeStrip();
+});
+feed.addEventListener('change', (e) => {
+  if (!ownsVideoSeek(e.target)) return;
+  const dur = yt?.player?.getDuration?.() || ytNow.it.duration || 0;
+  ytNow.dragging = false;
+  if (dur) yt.player.seekTo((e.target.value / 1000) * dur, true);
+  updateYouTubeStrip();
+});
 
 // Dragging the seek bar: show the time under the thumb, jump on release.
 feed.addEventListener('input', (e) => {
@@ -1190,6 +1293,8 @@ function playAudio(media, it, auto) {
   media.insertAdjacentHTML('afterend', `${audioBarHTML()}
     <button type="button" class="caption-line" data-act="transcript" aria-label="Subtitle. Tap for the full transcript" hidden></button>`);
   const np = nowPlaying = { it, media, bar: media.nextElementSibling, ready: false, saved: it.progress || 0, from: startOf(it).at, dragging: false };
+  const strip = media.parentElement.querySelector(':scope > .media-strip');
+  if (strip) strip.hidden = true; // the player bar has its own times and the size toggle
   if (audio.dataset.src !== it.audioUrl) {
     audio.dataset.src = it.audioUrl;
     audio.src = it.audioUrl; // seeks to `from` once its length is known
@@ -1231,6 +1336,7 @@ function stopMedia(card) {
   card.classList.remove('playing');
   media.className = mediaClass(it);
   media.innerHTML = mediaHTML(it);
+  renderStrip(card, it);
 }
 
 /* ----------------------------------------------------------------- actions */
@@ -1241,7 +1347,7 @@ function setLearned(it, learned) {
   it.learnedAt = learned ? Date.now() : null;
   persist();
   if (card) {
-    card.querySelector('.actions').innerHTML = actionsHTML(it);
+    card.querySelector('.rail-items').innerHTML = actionsHTML(it);
     setTimeout(() => removeCardEl(card), learned ? 220 : 0);
   }
   toast(learned ? `Nice, that's ${learnedToday()} learned today` : 'Moved back to Up next', {
@@ -1297,6 +1403,8 @@ feed.addEventListener('click', (e) => {
     case 'view-discover': setView('discover'); return;
     case 'play': if (it) play(card, it); break;
     case 'compact': toggleCompact(); break;
+    case 'rail': toggleRail(); break;
+    case 'to-highlight': if (it) jumpToHighlight(card, it); break;
     case 'cc': if (it) toggleCaptions(el, it); break;
     case 'audio-toggle': case 'audio-back': case 'audio-fwd': case 'audio-rate': audioAction(el.dataset.act); break;
     case 'transcript': openTranscript(); break;
@@ -1313,6 +1421,42 @@ feed.addEventListener('click', (e) => {
     case 'view-learned': setView('learned'); break;
     case 'view-queue': setView('queue'); break;
   }
+});
+
+// Long-press a saved card for its menu (edit, copy link, share, delete); right-click on a computer.
+let pressTimer = 0;
+let pressAt = null;
+let pressFired = false;
+const cancelPress = () => { clearTimeout(pressTimer); pressAt = null; };
+feed.addEventListener('touchstart', (e) => {
+  pressFired = false;
+  const card = e.target.closest('.card');
+  const it = card && byId(card.dataset.id);
+  if (!it || e.touches.length > 1 || e.target.closest('button, a, input, textarea, label, .yt-host')) return;
+  pressAt = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  clearTimeout(pressTimer);
+  pressTimer = setTimeout(() => {
+    pressAt = null;
+    pressFired = true;
+    setTimeout(() => { pressFired = false; }, 700); // only the click that ends this touch
+    navigator.vibrate?.(10);
+    openItemMenu(it);
+  }, 550);
+}, { passive: true });
+feed.addEventListener('touchmove', (e) => {
+  if (pressAt && Math.hypot(e.touches[0].clientX - pressAt.x, e.touches[0].clientY - pressAt.y) > 10) cancelPress();
+}, { passive: true });
+feed.addEventListener('touchend', cancelPress, { passive: true });
+feed.addEventListener('touchcancel', cancelPress, { passive: true });
+feed.addEventListener('scroll', cancelPress, { capture: true, passive: true });
+// The tap that ends a long-press must not also press whatever is under the finger in the menu.
+document.addEventListener('click', (e) => { if (pressFired) { pressFired = false; e.preventDefault(); e.stopPropagation(); } }, true);
+feed.addEventListener('contextmenu', (e) => {
+  const card = e.target.closest('.card');
+  const it = card && byId(card.dataset.id);
+  if (!it || e.target.closest('input, textarea')) return;
+  e.preventDefault();
+  openItemMenu(it);
 });
 
 // Image fallbacks (feed and sheets). load/error don't bubble, so listen in the capture phase.
@@ -1792,10 +1936,11 @@ const shuffled = (arr) => arr.map((v) => [Math.random(), v]).sort((a, b) => a[0]
 
 function discoverActionsHTML(c) {
   const following = isFollowing(c.follow);
-  return `<button type="button" class="act learn" data-act="d-save">${icon('plus')}<span>Save</span></button>
-    <button type="button" class="act" data-act="d-skip">${icon('x')}<span>Skip</span></button>
-    ${c.follow ? `<button type="button" class="act${following ? ' following' : ''}" data-act="d-follow" ${following ? 'disabled' : ''}>${icon(following ? 'check' : 'rss')}<span>${following ? 'Following' : 'Follow'}</span></button>` : ''}
-    <a class="act" href="${esc(c.item.url)}" target="_blank" rel="noopener">${icon('external')}<span>Open</span></a>`;
+  const follow = following ? `Following ${c.follow?.title || ''}`.trim() : `Follow ${c.follow?.title || 'this source'}`;
+  return `<button type="button" class="rail-btn primary" data-act="d-save" aria-label="Save to Up next" title="Save">${icon('plus')}</button>
+    <button type="button" class="rail-btn" data-act="d-skip" aria-label="Skip, don't show it again" title="Skip">${icon('x')}</button>
+    ${c.follow ? `<button type="button" class="rail-btn${following ? ' following' : ''}" data-act="d-follow" aria-label="${esc(follow)}" title="${esc(follow)}" ${following ? 'disabled' : ''}>${icon(following ? 'check' : 'rss')}</button>` : ''}
+    <a class="rail-btn" href="${esc(c.item.url)}" target="_blank" rel="noopener" aria-label="${c.item.type === 'youtube' ? 'Open in YouTube' : 'Open'}" title="Open">${icon(c.item.type === 'youtube' ? 'yt' : 'external')}</a>`;
 }
 
 function sourcesCardHTML(c) {
@@ -2014,23 +2159,34 @@ function discoverSkip(cardNode) {
 async function followSuggestion(info, interest, btn) {
   if (!info) return;
   if (isFollowing(info)) { toast(`You already follow ${info.title}`); return; }
+  const onRail = btn.classList.contains('rail-btn');
   const label = btn.querySelector('span') || btn;
-  const before = label.textContent;
+  const before = onRail ? btn.innerHTML : label.textContent;
+  const say = (text, iconName) => {
+    if (!onRail) { label.textContent = text; return; }
+    btn.setAttribute('aria-label', text);
+    btn.title = text;
+    if (iconName) btn.innerHTML = icon(iconName);
+  };
   btn.disabled = true;
-  label.textContent = 'Following…';
+  say('Following…');
+  btn.classList.add('busy');
   try {
     const found = info.feedUrl
       ? await fromFeed(info.feedUrl, { kind: info.kind, title: info.title, image: info.image, link: info.link })
       : await discover(info.site);
     const res = addSource(found, matchTopic(interest));
+    btn.classList.remove('busy');
     if (!res) { toast(`You already follow ${found.title}`); return; }
-    label.textContent = 'Following';
+    say(`Following ${res.s.title}`, 'check');
+    if (!onRail) label.textContent = 'Following';
     btn.classList.add('following');
     if (btn.classList.contains('primary')) btn.classList.replace('primary', 'ghost');
     toast(`Following ${res.s.title}${res.added ? ` · ${res.added} new in Up next` : ''}`);
   } catch (err) {
     btn.disabled = false;
-    label.textContent = before;
+    btn.classList.remove('busy');
+    if (onRail) { btn.innerHTML = before; btn.setAttribute('aria-label', 'Follow'); } else label.textContent = before;
     toast(err instanceof FeedError ? err.message : "Couldn't follow that right now");
   }
 }
@@ -2101,8 +2257,9 @@ const noteSheet = $('#noteSheet');
 const noteForm = $('#noteForm');
 let noteId = null;
 
-function openNote(it) {
+function openNote(it, heading = 'Key takeaway') {
   noteId = it.id;
+  $('#noteHeading').textContent = heading;
   noteForm.elements.note.value = it.note || '';
   $('#noteItemTitle').textContent = displayTitle(it);
   $('#noteLearnedBtn').hidden = it.status === 'learned';
@@ -2120,7 +2277,7 @@ noteForm.addEventListener('submit', (e) => {
   const card = cardEl(it.id);
   if (card) { // keep a playing video or podcast going
     card.querySelector('.body').innerHTML = bodyHTML(it);
-    card.querySelector('.actions').innerHTML = actionsHTML(it);
+    card.querySelector('.rail-items').innerHTML = actionsHTML(it);
   }
   if (e.submitter?.value === 'learned' && it.status !== 'learned') setLearned(it, true);
   else toast(it.note ? 'Takeaway saved' : 'Note cleared');

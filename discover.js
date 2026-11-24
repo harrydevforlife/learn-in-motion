@@ -41,7 +41,7 @@ export async function youtubeVideos(query) {
 
 /**
  * The "Most replayed" part of a video, from the heatmap YouTube shows over its progress bar.
- * Returns { start, duration } in seconds (start 0 when the video has no heatmap, e.g. few views).
+ * Returns { start, end, duration } in seconds (start 0 when the video has no heatmap, e.g. few views).
  * The watch page is big (about 1.5 MB), so callers cache the answer.
  */
 export async function youtubeHighlight(videoId) {
@@ -52,14 +52,14 @@ export async function youtubeHighlight(videoId) {
   const duration = Math.round(Math.max(0, ...heat.map((h) => h.at + h.len)));
   const scoreAt = (t) => heat.find((h) => t >= h.at && t < h.at + h.len)?.score || 0;
   // YouTube labels the peaks "Most replayed"; pick the strongest one.
-  const labelled = [...html.matchAll(/"visibleTimeRangeStartMillis":(\d+),"visibleTimeRangeEndMillis":\d+,"decorationTimeMillis":(\d+),"label":\{"runs":\[\{"text":"Most replayed"\}/g)]
-    .map((m) => ({ start: +m[1] / 1000, score: scoreAt(+m[2] / 1000) }));
+  const labelled = [...html.matchAll(/"visibleTimeRangeStartMillis":(\d+),"visibleTimeRangeEndMillis":(\d+),"decorationTimeMillis":(\d+),"label":\{"runs":\[\{"text":"Most replayed"\}/g)]
+    .map((m) => ({ start: +m[1] / 1000, end: +m[2] / 1000, score: scoreAt(+m[3] / 1000) }));
   // Without labels, use the hottest heatmap slice, ignoring the opening and the ending.
   const fromHeat = heat.filter((h) => h.at > duration * 0.05 && h.at < duration * 0.95)
-    .map((h) => ({ start: Math.max(0, h.at - 3), score: h.score }));
+    .map((h) => ({ start: Math.max(0, h.at - 3), end: h.at + h.len * 4, score: h.score }));
   const best = (labelled.length ? labelled : fromHeat).sort((a, b) => b.score - a.score)[0];
   const start = best && best.start >= 20 ? Math.round(best.start) : 0; // a peak at the very start isn't worth skipping to
-  return { start, duration };
+  return { start, end: start ? Math.round(best.end) : 0, duration };
 }
 
 /**

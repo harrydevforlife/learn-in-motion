@@ -9,7 +9,10 @@ Learned items move to the **Learned** tab with their takeaways, so you can scrol
 ## Features
 
 - Full-screen vertical feed with snap scrolling (one item per swipe)
-- When a card's text doesn't fit, it scrolls inside the card (a fade shows there's more). The ↙↗ button at the end of a card's source line switches every card to **compact**: a small thumbnail next to the source, so the title and text get the room. It holds while playing too, so you can listen to an episode (its player bar stays full width under the thumbnail) and read
+- Actions sit in a **rail of icon buttons** down the right side: Got it, Note and Open (Save, Skip, Follow and Open in Discover). **⋯** at the bottom folds them away or brings them back. **Long-press a card** for its menu: edit, copy link, share, delete
+- Under every picture, a strip shows what it is and how long. While a video plays it becomes a **seek bar** with the elapsed time and the most replayed part marked; the **★ chip** jumps there
+- When a card's text doesn't fit, it scrolls inside the card (a fade shows there's more). The ↙↗ button at the right end of that strip switches every card to **compact**: a small thumbnail next to the source, so the title and text get the room. It holds while playing too, so you can listen to an episode (its player bar stays full width under the thumbnail) and read
+- At the end of a video or episode, the takeaway sheet opens: write what you'll remember, then **Save & mark learned**
 - YouTube videos and Shorts play inline. Timestamps like `&t=90` are kept, a video stops when you scroll past it, and it resumes where you left off
 - **Autoplay**: a card's video or episode starts as soon as the card slides into view (Menu → Autoplay).
   iOS only allows sound after a tap, once per player: tap play inside the first video, and play on the first episode (any tap in the app also unlocks episodes).

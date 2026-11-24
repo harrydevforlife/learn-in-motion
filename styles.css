@@ -234,15 +234,37 @@ svg { display: block; }
 .compact .size-toggle svg + svg { display: block; }
 
 /* The action rail: icon buttons down the right side; ⋯ at the bottom folds them away */
-.rail { position: absolute; z-index: 3; right: calc(var(--safe-r) + 12px); bottom: calc(var(--safe-b) + var(--nav-h) + 12px); display: flex; flex-direction: column; align-items: center; gap: 12px; }
+/* A fixed width keeps ⋯ in place whether the column is open or folded (Got it is wider than ⋯). */
+.rail {
+  position: absolute; z-index: 3; right: calc(var(--safe-r) + 12px); bottom: calc(var(--safe-b) + var(--nav-h) + 12px);
+  width: 52px; display: flex; flex-direction: column; align-items: center; gap: 12px; pointer-events: none;
+  --step: 56px; /* one button plus the gap: how far each button travels to fold into ⋯ */
+}
 .rail-items { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.rail-closed .rail-items { display: none; }
 .rail-btn {
   position: relative; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center;
-  background: var(--surface); color: var(--text); text-decoration: none; transition: transform 0.12s ease, background 0.2s ease;
+  background: var(--surface); color: var(--text); text-decoration: none; pointer-events: auto;
+  transition: scale 0.12s ease, background 0.2s ease;
 }
 .rail-btn svg { width: 20px; height: 20px; stroke-width: 1.9; }
-.rail-btn:active { transform: scale(0.92); }
+.rail-btn:active { scale: 0.92; }
+/* Folding: each button slides down into ⋯ and shrinks away, the top one first; opening runs the other way. */
+.rail-items > :nth-last-child(1) { --n: 1; }
+.rail-items > :nth-last-child(2) { --n: 2; }
+.rail-items > :nth-last-child(3) { --n: 3; }
+.rail-items > :nth-last-child(4) { --n: 4; }
+.rail-items > .rail-btn {
+  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) calc((var(--n) - 1) * 35ms), opacity 0.24s ease calc((var(--n) - 1) * 35ms),
+    visibility 0s, scale 0.12s ease, background 0.2s ease;
+}
+.rail-closed .rail-items > .rail-btn {
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: translateY(calc(var(--n) * var(--step))) scale(0.3);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.7, 0.2) calc((4 - var(--n)) * 30ms), opacity 0.22s ease calc((4 - var(--n)) * 30ms),
+    visibility 0s linear 0.4s, scale 0.12s ease, background 0.2s ease;
+}
+.rail-toggle svg { transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.rail-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
 .rail-btn:disabled { cursor: default; }
 .rail-btn.primary { width: 52px; height: 52px; background: var(--ink); color: var(--ink-text); }
 .rail-btn.primary svg { width: 22px; height: 22px; stroke-width: 2.6; }
@@ -547,6 +569,7 @@ svg { display: block; }
 @media (max-height: 740px) {
   .title { font-size: 21px; }
   .rail, .rail-items { gap: 8px; }
+  .rail { width: 48px; --step: 48px; }
   .rail-btn { width: 40px; height: 40px; }
   .rail-btn.primary { width: 48px; height: 48px; }
   .stack { gap: 14px; }

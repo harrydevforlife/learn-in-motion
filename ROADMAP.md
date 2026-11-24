@@ -25,7 +25,10 @@ Hai việc đầu khiến app dùng được thật hằng ngày trên iPhone, v
 - [ ] **Ôn lại takeaway theo lịch.** Sau 1, 3, 7 ngày, takeaway cũ tự hiện lại thành thẻ "Bạn còn nhớ không?".
   Hiện bấm "Got it" xong là bài nằm yên trong tab Learned.
 - [ ] **Tốc độ phát podcast** (1.25×, 1.5×, 2×). Trình phát audio của iOS khi phát trong trang không có nút chỉnh tốc độ.
-- [ ] **YouTube nhớ chỗ đang xem** và hỏi "Got it?" khi xem hết, giống podcast. Dùng YouTube IFrame API (`enablejsapi=1`).
+- [x] **YouTube nhớ chỗ đang xem** và hỏi "Got it?" khi xem hết, giống podcast (YouTube IFrame API).
+- [x] **Tự phát khi lướt tới thẻ** (Autoplay) và **bắt đầu từ highlight** ("Most replayed" của YouTube).
+- [ ] **Highlight cho podcast.** Gần như không show nào đánh dấu soundbite trong feed, nên cần AI đọc transcript để chọn đoạn hay nhất (cần API key).
+- [ ] **Kiểm tra autoplay trên iPhone thật**: video tắt tiếng khi iOS chặn tiếng, và podcast tự phát sau lần chạm đầu.
 - [ ] **Đọc bài viết ngay trong app** (reader mode). r.jina.ai đã trả về nội dung chữ của trang, khỏi phải mở Safari.
 - [ ] **Xuất takeaway ra Markdown** để đưa sang Notion hay Obsidian.
 

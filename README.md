@@ -10,7 +10,11 @@ Learned items move to the **Learned** tab with their takeaways, so you can scrol
 
 - Full-screen vertical feed with snap scrolling (one item per swipe)
 - When a card's text doesn't fit, it scrolls inside the card (a fade shows there's more). The button in the corner of the picture switches every card to **compact**: a small thumbnail next to the source, so the title and text get the room. A video you play still opens full size
-- YouTube videos and Shorts play inline. Timestamps like `&t=90` are kept, and a video stops when you scroll past it
+- YouTube videos and Shorts play inline. Timestamps like `&t=90` are kept, a video stops when you scroll past it, and it resumes where you left off
+- **Autoplay**: when you stop scrolling on a card, its video or episode starts by itself (Menu → Autoplay).
+  iOS only allows sound after a first tap: until then a video may start muted, and an episode waits for one tap on play
+- **Start at highlights**: a YouTube video you haven't started begins at its "Most replayed" part, the peak of the heatmap YouTube shows over the progress bar.
+  A toast offers **From start**. Videos with few views have no heatmap and start from the beginning (Menu → Start at highlights)
 - Podcasts:
   - Apple Podcasts and feed episodes play in a native audio player that remembers where you stopped
   - Spotify episodes play in Spotify's own player
@@ -87,6 +91,7 @@ Then in YouTube, Safari or Podcasts: **Share → Save to Learn**.
   - YouTube oEmbed (with noembed.com as a fallback) for videos
   - Spotify oEmbed, and Apple's iTunes API, for podcasts
   - microlink.io for articles. Its free tier is ~50 lookups a day; when that runs out, r.jina.ai is used for the title
+- Highlights come from each video's YouTube page, fetched through r.jina.ai once per video (about 1.5 MB each, only for videos you reach).
 - Discover searches those same services, plus Hacker News (Algolia), dev.to and Wikipedia, with your interest keywords. YouTube search and Feedly's feed search go through r.jina.ai.
   A YouTube search page is about 1.5 MB, so each Discover refresh downloads a few MB.
 - Podcast transcripts are loaded from the podcast's own host (through r.jina.ai when the host blocks browser requests). To find one, the app loads the show's feed once per episode.

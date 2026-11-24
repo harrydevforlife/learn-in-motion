@@ -1,7 +1,7 @@
 // Learn in Motion: a no-backend PWA for scrolling through what you want to learn.
 // Data lives in localStorage on this device. Export a backup from the menu.
 import { discover, loadFeed, fromFeed, appleEpisode, FeedError } from './feeds.js';
-import { youtubeVideos, showEpisodes, podcastShows, hnStories, devArticles, wikiArticles, blogFeeds } from './discover.js';
+import { youtubeVideos, youtubeHighlight, showEpisodes, podcastShows, hnStories, devArticles, wikiArticles, blogFeeds } from './discover.js';
 import { findTranscript, loadTranscript } from './transcript.js';
 
 const STORE_KEY = 'lim.items.v1';
@@ -226,6 +226,9 @@ function normalizeItem(raw) {
     transcriptType: ['vtt', 'srt', 'json', 'html', 'text'].includes(raw.transcriptType) ? raw.transcriptType : '',
     transcriptChecked: Number(raw.transcriptChecked) || 0,
     ccOffset: Math.max(-7200, Math.min(7200, Number(raw.ccOffset) || 0)),
+    // YouTube: where the "Most replayed" part starts (0 = none), and when we looked it up.
+    highlight: parsed.type === 'youtube' ? Math.max(0, Math.round(Number(raw.highlight) || 0)) : 0,
+    highlightChecked: parsed.type === 'youtube' ? Number(raw.highlightChecked) || 0 : 0,
     metaPending: !!raw.metaPending,
     metaTries: Number(raw.metaTries) || 0,
   };
@@ -272,7 +275,7 @@ function normalizeDiscover(raw) {
 const state = {
   items: load(STORE_KEY, []).map(normalizeItem).filter(Boolean),
   sources: load(SOURCES_KEY, []).map(normalizeSource).filter(Boolean),
-  prefs: Object.assign({ view: 'queue', topic: '', shuffle: false, compact: false, captions: true, theme: 'auto', interests: [], dInterest: '' }, load(PREFS_KEY, {})),
+  prefs: Object.assign({ view: 'queue', topic: '', shuffle: false, compact: false, captions: true, autoplay: true, highlights: true, theme: 'auto', interests: [], dInterest: '' }, load(PREFS_KEY, {})),
   discover: normalizeDiscover(load(DISCOVER_KEY, null)),
   dseen: new Set(load(DSEEN_KEY, []).filter((k) => typeof k === 'string')),
   seed: Math.floor(Math.random() * 1e9),
@@ -400,7 +403,11 @@ function mediaBodyHTML(it) {
   const title = esc(displayTitle(it));
   if (it.type === 'youtube') {
     const base = `https://i.ytimg.com/vi/${it.videoId}`;
-    const badge = (it.vertical ? 'Short' : 'YouTube') + (it.start ? ` · from ${fmtTime(it.start)}` : it.duration ? ` · ${fmtTime(it.duration)}` : '');
+    const extra = it.progress > 30 ? ` · ${fmtTime(it.progress)} in`
+      : it.start ? ` · from ${fmtTime(it.start)}`
+      : state.prefs.highlights && it.highlight ? ` · ★ ${fmtTime(it.highlight)}`
+      : it.duration ? ` · ${fmtTime(it.duration)}` : '';
+    const badge = (it.vertical ? 'Short' : 'YouTube') + extra;
     return `<button type="button" data-act="play" aria-label="Play: ${title}">
         <img class="thumb" src="${base}/maxresdefault.jpg" data-fallback="${base}/hqdefault.jpg" alt="" loading="lazy" decoding="async">
         <span class="play">${icon('play')}</span>
@@ -539,7 +546,9 @@ function updateChrome() {
 }
 
 const io = new IntersectionObserver((entries) => {
-  for (const e of entries) if (e.intersectionRatio < 0.35) stopMedia(e.target);
+  for (const e of entries) {
+    if (e.intersectionRatio < 0.35) { stopMedia(e.target); delete e.target.dataset.autoTried; }
+  }
 }, { root: feed, threshold: [0, 0.35] });
 
 // A card's text scrolls on its own when it doesn't fit. Fade the edge where more text is hidden.
@@ -566,6 +575,7 @@ function render({ keepScroll = false } = {}) {
   feed.querySelectorAll('.card').forEach((c) => io.observe(c));
   feed.querySelectorAll('.content, .stack').forEach((el) => fadeRO.observe(el));
   feed.scrollTop = keepScroll ? top : 0;
+  scheduleSettle();
 }
 
 const cardEl = (id) => feed.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
@@ -601,21 +611,28 @@ function jumpTo(id) {
 }
 
 /* ------------------------------------------------------------ media play */
-function play(card, it) {
+// Where to start: where you left off, the time in the link, or the most replayed part.
+function startOf(it) {
+  if (it.progress > 30 && (!it.duration || it.progress < it.duration - 30)) return { at: it.progress, why: 'resume' };
+  if (it.start) return { at: it.start, why: 'link' };
+  if (it.type === 'youtube' && state.prefs.highlights && it.highlight > 0) return { at: it.highlight, why: 'highlight' };
+  return { at: 0, why: '' };
+}
+
+function play(card, it, { auto = false } = {}) {
   const media = card.querySelector('.media');
+  if (!media || media.dataset.playing) return;
   const title = esc(displayTitle(it));
   if (it.type === 'youtube') {
-    const params = new URLSearchParams({ autoplay: '1', playsinline: '1', rel: '0', modestbranding: '1' });
-    if (it.start) params.set('start', String(it.start));
-    media.innerHTML = `<iframe src="https://www.youtube.com/embed/${it.videoId}?${params}" title="${title}"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-        referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
+    playYouTube(media, it, auto);
+  } else if (it.type === 'podcast' && it.audioUrl) {
+    playAudio(media, it, auto);
+  } else if (auto) {
+    return; // Spotify and older Apple episodes play in their own embeds, which only start from a tap
   } else if (it.type === 'spotify') {
     media.classList.add('embed');
     media.innerHTML = `<iframe src="https://open.spotify.com/embed/${it.spotifyKind}/${it.spotifyId}" title="${title}"
         allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"></iframe>`;
-  } else if (it.type === 'podcast' && it.audioUrl) {
-    playAudio(media, it);
   } else if (it.type === 'podcast' && it.appleShow) {
     media.classList.add('embed', 'apple');
     media.innerHTML = `<iframe src="https://embed.podcasts.apple.com/${it.appleCountry}/podcast/id${it.appleShow}?i=${it.appleEpisode}&theme=${isDark() ? 'dark' : 'light'}" title="${title}"
@@ -627,6 +644,147 @@ function play(card, it) {
   media.dataset.playing = '1';
   card.classList.add('playing'); // full-size player, even in compact mode
   card.querySelector('.content').scrollTop = 0;
+}
+
+function finished(it) {
+  if (byId(it.id) && it.status !== 'learned') toast('Finished. Mark it as learned?', { action: 'Got it', onAction: () => setLearned(it, true) });
+}
+
+/* YouTube goes through its IFrame API: it tells us where you are (to resume later) and when a video ends. */
+let ytApi = null;
+function loadYouTubeApi() {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  ytApi ||= new Promise((resolve, reject) => {
+    window.onYouTubeIframeAPIReady = () => resolve(window.YT);
+    const s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    s.onerror = () => { ytApi = null; s.remove(); reject(new Error('YouTube API unavailable')); };
+    document.head.append(s);
+  });
+  return ytApi;
+}
+const players = new Map(); // .media element → { player, timer, save }
+let mutedHint = false;
+
+function playYouTube(media, it, auto) {
+  const from = startOf(it);
+  if (!window.YT?.Player) { // API not loaded (offline or blocked): a plain embed still plays
+    const params = new URLSearchParams({ autoplay: '1', playsinline: '1', rel: '0', modestbranding: '1' });
+    if (from.at) params.set('start', String(Math.floor(from.at)));
+    if (auto) params.set('mute', '1');
+    media.innerHTML = `<iframe src="https://www.youtube.com/embed/${it.videoId}?${params}" title="${esc(displayTitle(it))}"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
+    loadYouTubeApi().catch(() => {});
+    return;
+  }
+  const YT = window.YT;
+  media.innerHTML = '<div></div>';
+  const entry = { timer: 0, player: null };
+  entry.save = () => {
+    const now = entry.player?.getCurrentTime?.();
+    if (!(now > 0)) return;
+    it.progress = Math.floor(now);
+    if (!it.duration) it.duration = Math.round(entry.player.getDuration?.() || 0);
+    saveItem(it);
+  };
+  entry.player = new YT.Player(media.firstElementChild, {
+    videoId: it.videoId,
+    width: '100%',
+    height: '100%',
+    playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, start: Math.floor(from.at), origin: location.origin },
+    events: {
+      onReady: (e) => {
+        if (auto) e.target.playVideo();
+        // iOS starts sound only after a tap. If the video still hasn't started, play it muted.
+        setTimeout(() => {
+          if (players.get(media) !== entry) return;
+          const s = e.target.getPlayerState?.();
+          if (s === YT.PlayerState.UNSTARTED || s === YT.PlayerState.CUED) {
+            e.target.mute();
+            e.target.playVideo();
+            if (!mutedHint) { mutedHint = true; toast('Playing muted. Tap the video for sound'); }
+          }
+        }, 2500);
+      },
+      onStateChange: (e) => {
+        clearInterval(entry.timer);
+        if (e.data === YT.PlayerState.PLAYING) entry.timer = setInterval(entry.save, 5000);
+        if (e.data === YT.PlayerState.PAUSED) entry.save();
+        if (e.data === YT.PlayerState.ENDED) { it.progress = 0; saveItem(it); finished(it); }
+      },
+    },
+  });
+  players.set(media, entry);
+  if (from.why === 'highlight') highlightToast(entry, from.at);
+  else if (needsHighlight(it)) {
+    // The highlight is still being looked up: jump there when it arrives, if the video has only just begun.
+    highlightFor(it).then(() => {
+      if (players.get(media) !== entry || !(it.highlight > 0) || !state.prefs.highlights) return;
+      if ((entry.player.getCurrentTime?.() || 0) > 15) return;
+      entry.player.seekTo?.(it.highlight, true);
+      highlightToast(entry, it.highlight);
+    });
+  }
+}
+
+function highlightToast(entry, at) {
+  toast(`Starting at the most replayed part (${fmtTime(at)})`, { action: 'From start', onAction: () => entry.player.seekTo?.(0, true) });
+}
+
+function stopYouTube(media) {
+  const entry = players.get(media);
+  if (!entry) return;
+  clearInterval(entry.timer);
+  try { entry.save(); entry.player.destroy?.(); } catch { /* player never got ready */ }
+  players.delete(media);
+}
+
+/* Autoplay: when scrolling stops on a card, start its video or episode. */
+let settleTimer = 0;
+function scheduleSettle() { clearTimeout(settleTimer); settleTimer = setTimeout(onSettle, 220); }
+feed.addEventListener('scroll', scheduleSettle, { passive: true });
+const activeCard = () => { const el = feed.children[currentIndex()]; return el?.classList.contains('card') ? el : null; };
+const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
+
+async function onSettle() {
+  const card = activeCard();
+  if (!card) return;
+  prefetchHighlights(card);
+  if (!state.prefs.autoplay || state.prefs.view === 'learned' || document.hidden || document.querySelector('dialog[open]')) return;
+  const it = findItem(card.dataset.id);
+  const media = card.querySelector('.media');
+  if (!it || !media || media.dataset.playing || card.dataset.autoTried) return;
+  if (it.type !== 'youtube' && !(it.type === 'podcast' && it.audioUrl)) return;
+  card.dataset.autoTried = '1'; // once per visit, so a video you stopped doesn't restart
+  if (needsHighlight(it)) await withTimeout(highlightFor(it), 2500);
+  if (activeCard() !== card || media.dataset.playing) return; // moved on while waiting
+  play(card, it, { auto: true });
+}
+
+/* Highlights: the "Most replayed" part of a YouTube video, looked up once per video. */
+const highlightJobs = new Map(); // videoId → Promise
+const needsHighlight = (it) => state.prefs.highlights && it.type === 'youtube' && !it.vertical && !it.highlightChecked && !it.start && !(it.progress > 30);
+function highlightFor(it) {
+  if (!needsHighlight(it) || !navigator.onLine) return Promise.resolve();
+  if (!highlightJobs.has(it.videoId)) {
+    highlightJobs.set(it.videoId, youtubeHighlight(it.videoId).then(({ start, duration }) => {
+      it.highlight = start;
+      it.highlightChecked = Date.now();
+      if (!it.duration && duration) it.duration = duration;
+      saveItem(it);
+      const media = cardEl(it.id)?.querySelector('.media');
+      if (media && !media.dataset.playing) media.innerHTML = mediaHTML(it); // show ★ in the badge
+    }).catch(() => { /* try again another time */ }).finally(() => highlightJobs.delete(it.videoId)));
+  }
+  return highlightJobs.get(it.videoId);
+}
+// The card you're on and the next one, so the next video can start at its highlight right away.
+function prefetchHighlights(card) {
+  for (const c of [card, card.nextElementSibling]) {
+    const it = c?.dataset.id && findItem(c.dataset.id);
+    if (it) highlightFor(it);
+  }
 }
 
 function toggleCompact() {
@@ -676,13 +834,13 @@ async function transcriptFor(it) {
 
 async function startCaptions(media, it, asked) {
   const btn = media.querySelector('.cc-btn');
-  const audio = media.querySelector('audio');
-  if (!btn || !audio || btn.classList.contains('busy')) return;
+  const el = media.querySelector('audio');
+  if (!btn || !el || btn.classList.contains('busy')) return;
   btn.classList.remove('none');
   btn.classList.add('busy');
   let data = null, failed = false;
   try { data = await transcriptFor(it); } catch { failed = true; }
-  if (media.querySelector('audio') !== audio) return; // stopped meanwhile
+  if (media.querySelector('audio') !== el) return; // stopped meanwhile
   btn.classList.remove('busy');
   if (!data) {
     btn.classList.add('none');
@@ -690,7 +848,7 @@ async function startCaptions(media, it, asked) {
     if (asked) toast(failed ? "Couldn't load the transcript. Try again in a bit." : "This episode doesn't have a public transcript");
     return;
   }
-  cc = { media, audio, it, data, offset: it.ccOffset || 0, idx: -2 };
+  cc = { media, audio: el, it, data, offset: it.ccOffset || 0, idx: -2 };
   if (data.timed) {
     setCaptions(true);
   } else { // text without timings: no live subtitles, but it can still be read
@@ -812,29 +970,56 @@ trList.addEventListener('click', (e) => {
 });
 
 // Native audio for podcast episodes: resumes where you left off, offers "Got it" at the end.
-function playAudio(media, it) {
+// One <audio> element serves every episode: iOS only starts sound from a tap, but an element
+// that has played once can play again later, so autoplay moves it from card to card.
+const audio = document.createElement('audio');
+audio.controls = true;
+audio.preload = 'auto';
+let nowPlaying = null; // { it, media, ready, saved, from }
+let audioHint = false;
+audio.addEventListener('loadedmetadata', () => {
+  const np = nowPlaying;
+  if (!np) return;
+  if (!np.it.duration && Number.isFinite(audio.duration)) np.it.duration = Math.round(audio.duration);
+  if (np.from > 5 && np.from < audio.duration - 10) audio.currentTime = np.from;
+  np.ready = true;
+});
+audio.addEventListener('timeupdate', () => {
+  const np = nowPlaying;
+  if (!np) return;
+  if (np.ready && !audio.seeking && Math.abs(audio.currentTime - np.saved) >= 5) { np.saved = np.it.progress = Math.floor(audio.currentTime); saveItem(np.it); }
+  if (cc?.audio === audio) tickCaptions();
+});
+audio.addEventListener('seeked', () => { if (cc?.audio === audio) tickCaptions(); });
+audio.addEventListener('ended', () => {
+  const np = nowPlaying;
+  if (!np) return;
+  np.it.progress = 0;
+  saveItem(np.it);
+  finished(np.it);
+});
+
+function playAudio(media, it, auto) {
+  if (cc && cc.media !== media) cc = null; // subtitles belonged to the previous episode
   media.innerHTML = `${artHTML(it)}
     <button type="button" class="captions" data-act="transcript" aria-label="Subtitle. Tap for the full transcript" hidden></button>
     <button type="button" class="cc-btn" data-act="cc" aria-label="Subtitles" aria-pressed="false">CC</button>
-    <div class="audio-bar"><audio controls preload="auto" src="${esc(it.audioUrl)}"></audio></div>`;
-  const a = media.querySelector('audio');
-  let ready = false, saved = it.progress || 0;
-  a.addEventListener('loadedmetadata', () => {
-    if (!it.duration && Number.isFinite(a.duration)) it.duration = Math.round(a.duration);
-    if (saved > 5 && saved < a.duration - 10) a.currentTime = saved;
-    ready = true;
-  }, { once: true });
-  a.addEventListener('timeupdate', () => {
-    if (ready && !a.seeking && Math.abs(a.currentTime - saved) >= 5) { saved = it.progress = Math.floor(a.currentTime); persist(); }
-    if (cc?.audio === a) tickCaptions();
+    <div class="audio-bar"></div>`;
+  media.querySelector('.audio-bar').append(audio);
+  const np = nowPlaying = { it, media, ready: false, saved: it.progress || 0, from: startOf(it).at };
+  if (audio.dataset.src !== it.audioUrl) {
+    audio.dataset.src = it.audioUrl;
+    audio.src = it.audioUrl; // seeks to `from` once its length is known
+  } else if (audio.readyState >= 1) {
+    audio.currentTime = np.from;
+    np.ready = true;
+  }
+  audio.play().catch((err) => {
+    // Only a refusal to start sound needs a tap; a file that fails to load shows its own error in the player.
+    if (!auto || nowPlaying !== np || err?.name !== 'NotAllowedError') return;
+    stopMedia(media.closest('.card')); // show the play button again
+    if (!audioHint) { audioHint = true; toast('Tap play once, then episodes start on their own as you scroll'); }
   });
-  a.addEventListener('seeked', () => { if (cc?.audio === a) tickCaptions(); });
-  a.addEventListener('ended', () => {
-    it.progress = 0;
-    persist();
-    if (it.status !== 'learned') toast('Finished. Mark it as learned?', { action: 'Got it', onAction: () => setLearned(it, true) });
-  });
-  a.play().catch(() => {});
   if (state.prefs.captions) startCaptions(media, it, false);
   if ('mediaSession' in navigator && window.MediaMetadata) {
     navigator.mediaSession.metadata = new MediaMetadata({
@@ -847,12 +1032,14 @@ function stopMedia(card) {
   const media = card.querySelector('.media');
   const it = findItem(card.dataset.id);
   if (!media?.dataset.playing || !it) return;
-  const a = media.querySelector('audio');
-  if (a) {
-    if (!a.ended && a.currentTime > 5) it.progress = Math.floor(a.currentTime);
-    a.pause();
-    persist();
+  if (nowPlaying?.media === media) {
+    if (!audio.ended && audio.currentTime > 5) it.progress = Math.floor(audio.currentTime);
+    audio.pause();
+    audio.remove();
+    nowPlaying = null;
+    saveItem(it);
   }
+  stopYouTube(media);
   if (cc?.media === media) { cc = null; closeSheet(trSheet); }
   delete media.dataset.playing;
   card.classList.remove('playing');
@@ -1813,7 +2000,14 @@ function cycleTheme() {
 const menuSheet = $('#menuSheet');
 const importInput = $('#importInput');
 
+function renderMenuToggles() {
+  $('#autoplayValue').textContent = state.prefs.autoplay ? 'On' : 'Off';
+  $('#highlightsValue').textContent = state.prefs.highlights ? 'On' : 'Off';
+}
+menuSheet.addEventListener('close', scheduleSettle); // autoplay may have just been turned on
+
 $('#menuBtn').addEventListener('click', () => {
+  renderMenuToggles();
   const learned = state.items.filter((i) => i.status === 'learned').length;
   const today = learnedToday();
   $('#menuStats').textContent = `${state.items.length} saved · ${learned} learned${today ? ` · ${today} today` : ''}`;
@@ -1825,7 +2019,14 @@ menuSheet.addEventListener('click', (e) => {
   const b = e.target.closest('[data-menu-act]');
   if (!b) return;
   const act = b.dataset.menuAct;
-  if (act === 'theme') { cycleTheme(); return; } // stay open to show the new setting
+  if (act === 'theme') { cycleTheme(); return; } // settings stay open to show the new value
+  if (act === 'autoplay' || act === 'highlights') {
+    state.prefs[act] = !state.prefs[act];
+    persistPrefs();
+    renderMenuToggles();
+    if (act === 'highlights') render({ keepScroll: true }); // badges show ★ only when it's on
+    return;
+  }
   if (act === 'export') exportData(); // keep inside the tap so iOS allows the share sheet
   closeSheet(menuSheet); // close first: a modal dialog makes the file input inert
   if (act === 'import') importInput.click();
@@ -1937,6 +2138,7 @@ $('#discoverRefresh').innerHTML = icon('refresh');
 $('#addBtn').innerHTML = icon('plus');
 $('#addBtn').addEventListener('click', () => openAdd());
 
+loadYouTubeApi().catch(() => {}); // ready before the first tap, so videos start inside that tap
 render();
 takeSharedLink();
 renderSourceList();
